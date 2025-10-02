@@ -446,8 +446,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.im.set_norm(LogNorm(vmin=max(vmin, 1e-12), vmax=max(vmax, 1e-11)))
             else:
                 self.im.set_norm(Normalize(vmin=vmin, vmax=vmax))
-        self.figure_heatmap.tight_layout(pad=2.5)
-        # overlay numeric values (optional)
+        #self.figure_heatmap.tight_layout(pad=2.5)
         for artist in getattr(self, "_val_texts", []):
             try:
                 artist.remove()
@@ -477,7 +476,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                 fontsize=8,
                             )
                         )
-        self.canvas_heatmap.draw_idle()
+        self.canvas_heatmap.draw()
 
         # Histogram
         self.ax_hist.clear()
@@ -543,8 +542,6 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             if (
                 selection.upper().startswith(("USB", "GPIB", "TCPIP"))
-                and VISAAdapter
-                and pyvisa
             ):
                 adapter = VISAAdapter(selection)
             elif PrologixAdapter:
@@ -617,15 +614,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Approx integration per reading = NPLC / mains_freq (assume 60 Hz unless you want to make it user-selectable)
         mains = 60.0
         t_read = self.ui.spin_nplc.value() / mains
-        try:
-            loop_gap = float(self.ui.loop_delay.text())
-        except Exception:
-            loop_gap = 0.0
-        total_per_pixel = self.ui.spin_nsamp.value() * (
-            t_read + 0.05
-        )  # 0.05 s inter-sample delay (fixed)
         self.ui.integration_time.setText(
-            f"{t_read:.3f} s/read  |  ~{total_per_pixel:.3f} s/pixel (+ loop gap {loop_gap:.2f}s)"
+            f"{t_read:.3f} s/read"
         )
 
 
