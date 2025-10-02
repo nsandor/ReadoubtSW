@@ -235,7 +235,7 @@ class MainWindow(QtWidgets.QMainWindow):
             loops=loops,
             auto_range=auto_rng,
             current_range=cur_rng,
-            inter_sample_delay_s=0.05,
+            inter_sample_delay_s=0,
             inter_loop_delay_s=inter_loop_delay,
         )
         self._thread = QtCore.QThread()
@@ -487,7 +487,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                 fontsize=8,
                             )
                         )
-        self.canvas_heatmap.draw()
+        self.canvas_heatmap.draw_idle()
 
         # Histogram
         self.ax_hist.clear()

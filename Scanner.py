@@ -94,10 +94,12 @@ class ScanWorker(QtCore.QObject):
                     break
                 self.loopFinished.emit(loop_idx)
                 if loop_idx < self._loops and self._inter_loop_delay_s > 0:
+                    print(f"Waiting {self._inter_loop_delay_s} s before next loop...")
                     for _ in range(int(self._inter_loop_delay_s * 10)):
                         if self._stop:
                             break
                         QtCore.QThread.msleep(100)
+                    print("Starting next loop...")
         except Exception:
             pass
         finally:
