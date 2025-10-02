@@ -56,3 +56,66 @@ class DummyKeithley2400:
 
     def ask(self, _):
         return str(self.current)
+
+
+class Bias2400(Keithley2400 if Keithley2400 else object):
+    """General-purpose 2400 wrapper for detector biasing."""
+
+    def __init__(self, adapter, **kwargs):
+        super().__init__(adapter, **kwargs)
+        self._last_voltage = 0.0
+        if Keithley2400:
+            try:
+                self.write("SOUR:FUNC VOLT")
+                self.write("SOUR:VOLT:MODE FIX")
+                self.write("SOUR:CURR:PROT 0.01")  # 10 mA compliance default
+            except Exception:
+                pass
+            try:
+                self.disable_source()
+            except Exception:
+                pass
+            try:
+                self.source_voltage = 0.0
+            except Exception:
+                pass
+
+    @property
+    def source_voltage(self):
+        if not Keithley2400:
+            return self._last_voltage
+        try:
+            return float(self.ask(":SOUR:VOLT?").strip())
+        except Exception:
+            return self._last_voltage
+
+    @source_voltage.setter
+    def source_voltage(self, value):
+        self._last_voltage = float(value)
+        if Keithley2400:
+            try:
+                self.write(f":SOUR:VOLT {float(value):.6f}")
+            except Exception:
+                pass
+
+
+class DummyBias2400:
+    def __init__(self):
+        self._source_voltage = 0.0
+
+    def reset(self):
+        self._source_voltage = 0.0
+
+    def enable_source(self):
+        pass
+
+    def disable_source(self):
+        pass
+
+    @property
+    def source_voltage(self):
+        return self._source_voltage
+
+    @source_voltage.setter
+    def source_voltage(self, value):
+        self._source_voltage = float(value)

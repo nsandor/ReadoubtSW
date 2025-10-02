@@ -241,13 +241,114 @@
               </widget>
              </item>
              <item row="6" column="0">
+              <widget class="QLabel" name="label_voltage_start">
+               <property name="text">
+                <string>Start Voltage (V):</string>
+               </property>
+              </widget>
+             </item>
+             <item row="6" column="1">
+              <widget class="QDoubleSpinBox" name="spin_voltage_start">
+               <property name="decimals">
+                <number>3</number>
+               </property>
+               <property name="minimum">
+                <double>-200.000000000000000</double>
+               </property>
+               <property name="maximum">
+                <double>200.000000000000000</double>
+               </property>
+               <property name="singleStep">
+                <double>0.100000000000000</double>
+               </property>
+               <property name="value">
+                <double>0.000000000000000</double>
+               </property>
+              </widget>
+             </item>
+             <item row="7" column="0">
+              <widget class="QLabel" name="label_voltage_end">
+               <property name="text">
+                <string>End Voltage (V):</string>
+               </property>
+              </widget>
+             </item>
+             <item row="7" column="1">
+              <widget class="QDoubleSpinBox" name="spin_voltage_end">
+               <property name="decimals">
+                <number>3</number>
+               </property>
+               <property name="minimum">
+                <double>-200.000000000000000</double>
+               </property>
+               <property name="maximum">
+                <double>200.000000000000000</double>
+               </property>
+               <property name="singleStep">
+                <double>0.100000000000000</double>
+               </property>
+               <property name="value">
+                <double>1.000000000000000</double>
+               </property>
+              </widget>
+             </item>
+             <item row="8" column="0">
+              <widget class="QLabel" name="label_voltage_step">
+               <property name="text">
+                <string>Step Size (V):</string>
+               </property>
+              </widget>
+             </item>
+             <item row="8" column="1">
+              <widget class="QDoubleSpinBox" name="spin_voltage_step">
+               <property name="decimals">
+                <number>3</number>
+               </property>
+               <property name="minimum">
+                <double>0.000100000000000</double>
+               </property>
+               <property name="maximum">
+                <double>200.000000000000000</double>
+               </property>
+               <property name="singleStep">
+                <double>0.100000000000000</double>
+               </property>
+               <property name="value">
+                <double>0.100000000000000</double>
+               </property>
+              </widget>
+             </item>
+             <item row="9" column="0">
+              <widget class="QLabel" name="label_voltage_settle">
+               <property name="text">
+                <string>Settling Time (s):</string>
+               </property>
+              </widget>
+             </item>
+             <item row="9" column="1">
+              <widget class="QDoubleSpinBox" name="spin_voltage_settle">
+               <property name="decimals">
+                <number>3</number>
+               </property>
+               <property name="maximum">
+                <double>600.000000000000000</double>
+               </property>
+               <property name="singleStep">
+                <double>0.100000000000000</double>
+               </property>
+               <property name="value">
+                <double>0.200000000000000</double>
+               </property>
+              </widget>
+             </item>
+             <item row="10" column="0">
               <widget class="QLabel" name="label_nplc">
                <property name="text">
                 <string>NPLC:</string>
                </property>
               </widget>
              </item>
-             <item row="6" column="1">
+             <item row="10" column="1">
               <widget class="QDoubleSpinBox" name="spin_nplc">
                <property name="decimals">
                 <number>2</number>
@@ -263,28 +364,28 @@
                </property>
               </widget>
              </item>
-             <item row="7" column="0">
+             <item row="11" column="0">
               <widget class="QLabel" name="integration_time_label">
                <property name="text">
                 <string>Integration Time:</string>
                </property>
               </widget>
              </item>
-             <item row="7" column="1">
+             <item row="11" column="1">
               <widget class="QLabel" name="integration_time">
                <property name="text">
                 <string>-</string>
                </property>
               </widget>
              </item>
-             <item row="8" column="0">
+             <item row="12" column="0">
               <widget class="QLabel" name="label_nsamp">
                <property name="text">
                 <string>Samples / pixel:</string>
                </property>
               </widget>
              </item>
-             <item row="8" column="1">
+             <item row="12" column="1">
               <widget class="QSpinBox" name="spin_nsamp">
                <property name="minimum">
                 <number>1</number>
@@ -297,7 +398,7 @@
                </property>
               </widget>
              </item>
-             <item row="9" column="0">
+             <item row="13" column="0">
               <widget class="QCheckBox" name="check_auto_current_range">
                <property name="text">
                 <string>Auto current range</string>
@@ -307,14 +408,14 @@
                </property>
               </widget>
              </item>
-             <item row="10" column="0">
+             <item row="14" column="0">
               <widget class="QLabel" name="label_manual_rng">
                <property name="text">
                 <string>Manual range (A):</string>
                </property>
               </widget>
              </item>
-             <item row="10" column="1">
+             <item row="14" column="1">
               <widget class="QLineEdit" name="edit_current_range">
                <property name="enabled">
                 <bool>false</bool>
@@ -324,7 +425,7 @@
                </property>
               </widget>
              </item>
-             <item row="11" column="0" colspan="2">
+             <item row="15" column="0" colspan="2">
               <widget class="QStackedWidget" name="stackedWidget">
                <property name="currentIndex">
                 <number>1</number>

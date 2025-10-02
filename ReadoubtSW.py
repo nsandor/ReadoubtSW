@@ -22,7 +22,12 @@ from matplotlib.colors import LogNorm, Normalize
 from pymeasure.adapters import PrologixAdapter, VISAAdapter
 
 from DevicePicker import DevicePicker
-from Drivers.Keithley2400_drv import DummyKeithley2400, ReadoutSafe2400
+from Drivers.Keithley2400_drv import (
+    Bias2400,
+    DummyBias2400,
+    DummyKeithley2400,
+    ReadoutSafe2400,
+)
 from Drivers.Switchboard_drv import DummySwitchBoard, SwitchBoard
 from Readoubt_ui import Ui_MainWindow
 from Scanner import ScanWorker
@@ -50,9 +55,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._is_paused = False
         self._thread: Optional[QtCore.QThread] = None
         self._worker: Optional[ScanWorker] = None
+        self.measurement_mode: str = "time"
+        self._loop_label: str = "Loop"
+        self._current_voltage: Optional[float] = None
+        self._voltage_sequence: List[float] = []
+        self._voltage_control_widgets: List[QtWidgets.QWidget] = []
+        self._loop_control_widgets: List[QtWidgets.QWidget] = []
 
         # ---- instruments (dummy by default) ----
         self.sm = DummyKeithley2400()
+        self.bias_sm = DummyBias2400()
         self.switch = DummySwitchBoard()
         self.read_sm_idn = "Read SMU: (not connected)"
         self.bias_sm_idn = "Bias SMU: (not connected)"  # stub for future
@@ -92,6 +104,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.spin_nsamp.setValue(1)
         self.ui.loop_delay.setText("1")
         self._update_integration_time_label()
+        self._loop_control_widgets = [
+            self.ui.label_loops,
+            self.ui.spin_loops,
+            self.ui.loop_delay_label,
+            self.ui.loop_delay,
+        ]
+        self._voltage_control_widgets = [
+            self.ui.label_voltage_start,
+            self.ui.spin_voltage_start,
+            self.ui.label_voltage_end,
+            self.ui.spin_voltage_end,
+            self.ui.label_voltage_step,
+            self.ui.spin_voltage_step,
+            self.ui.label_voltage_settle,
+            self.ui.spin_voltage_settle,
+        ]
 
         # ---- signal wiring ----
         self.ui.btn_run_abort.clicked.connect(self.on_run_abort_clicked)
@@ -119,6 +147,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.spin_nplc.valueChanged.connect(self._update_integration_time_label)
         self.ui.spin_nsamp.valueChanged.connect(self._update_integration_time_label)
         self.ui.loop_delay.editingFinished.connect(self._update_integration_time_label)
+        self.ui.Measurement_type_combobox.currentIndexChanged.connect(
+            self._on_measurement_type_changed
+        )
 
         # Menu actions
         self.ui.actionConnect_SMU.triggered.connect(self._connect_read_smu)
@@ -131,10 +162,73 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_plot_controls_state()
         self._update_plots(reset=True)
         self._update_statusbar(text="Ready")
+        self._on_measurement_type_changed(
+            self.ui.Measurement_type_combobox.currentIndex()
+        )
 
     # ---------------------- convenience ----------------------
     def _update_statusbar(self, text: str):
         self.statusBar().showMessage(text, 4000)
+
+    def _on_measurement_type_changed(self, index: int):
+        text = (
+            self.ui.Measurement_type_combobox.itemText(index) or ""
+        ).lower()
+        show_voltage = "voltage" in text
+        self.measurement_mode = "voltage" if show_voltage else "time"
+        self._loop_label = "Voltage Step" if show_voltage else "Loop"
+        for w in self._loop_control_widgets:
+            w.setVisible(not show_voltage)
+        for w in self._voltage_control_widgets:
+            w.setVisible(show_voltage)
+        if show_voltage:
+            self._current_voltage = None
+            if self.ui.spin_loops.value() != 1:
+                self.ui.spin_loops.setValue(1)
+        self._update_statusbar(
+            "Voltage sweep mode ready" if show_voltage else "Time-mode scan"
+        )
+
+    @staticmethod
+    def _voltage_display(voltage: float) -> str:
+        return f"{voltage:+.3f} V"
+
+    @staticmethod
+    def _voltage_file_tag(voltage: float) -> str:
+        return (
+            f"{voltage:+.3f}V".replace("+", "p").replace("-", "m").replace(".", "p")
+        )
+
+    @staticmethod
+    def _generate_voltage_steps(start: float, end: float, step: float) -> List[float]:
+        if step <= 0:
+            raise ValueError("Step size must be positive.")
+        values: List[float] = []
+        eps = max(abs(step) * 1e-6, 1e-9)
+        if start <= end:
+            val = start
+            while val <= end + eps:
+                values.append(round(val, 6))
+                val += step
+        else:
+            val = start
+            step = -abs(step)
+            while val >= end - eps:
+                values.append(round(val, 6))
+                val += step
+        if not values:
+            raise ValueError("Voltage sweep produced no steps.")
+        if len(values) > 2000:
+            raise ValueError("Voltage sweep would produce more than 2000 steps.")
+        return values
+
+    def _collect_voltage_sweep_settings(self) -> tuple[List[float], float]:
+        start = float(self.ui.spin_voltage_start.value())
+        end = float(self.ui.spin_voltage_end.value())
+        step = float(self.ui.spin_voltage_step.value())
+        settle = float(self.ui.spin_voltage_settle.value())
+        voltages = self._generate_voltage_steps(start, end, step)
+        return voltages, max(0.0, settle)
 
     # ---------------------- selection/parse ----------------------
     @staticmethod
@@ -217,13 +311,48 @@ class MainWindow(QtWidgets.QMainWindow):
         # reset data and UI
         self.data.fill(np.nan)
         self._update_plots(reset=True)
-        loops = self.ui.spin_loops.value()
         nplc = self.ui.spin_nplc.value()
         nsamp = self.ui.spin_nsamp.value()
-        try:
-            inter_loop_delay = float(self.ui.loop_delay.text())
-        except Exception:
+
+        measurement_text = (
+            self.ui.Measurement_type_combobox.currentText() or ""
+        ).lower()
+        voltage_mode = "voltage" in measurement_text
+        self.measurement_mode = "voltage" if voltage_mode else "time"
+        self._loop_label = "Voltage Step" if voltage_mode else "Loop"
+        self._current_voltage = None
+
+        voltage_steps = None
+        settle_time = 0.0
+        if voltage_mode:
+            if isinstance(self.bias_sm, DummyBias2400):
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Bias SMU",
+                    "Connect a bias sourcemeter before running a voltage sweep.",
+                )
+                return
+            try:
+                voltage_steps, settle_time = self._collect_voltage_sweep_settings()
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Voltage Sweep", f"{e}")
+                return
+            loops = len(voltage_steps)
             inter_loop_delay = 0.0
+            self._voltage_sequence = voltage_steps
+        else:
+            loops = self.ui.spin_loops.value()
+            try:
+                inter_loop_delay = float(self.ui.loop_delay.text())
+            except Exception:
+                inter_loop_delay = 0.0
+            self._voltage_sequence = []
+
+        if loops <= 0:
+            QtWidgets.QMessageBox.critical(
+                self, "Scan", "At least one iteration is required."
+            )
+            return
 
         # worker
         self._worker = ScanWorker(
@@ -237,6 +366,9 @@ class MainWindow(QtWidgets.QMainWindow):
             current_range=cur_rng,
             inter_sample_delay_s=0,
             inter_loop_delay_s=inter_loop_delay,
+            bias_sm=self.bias_sm if voltage_mode else None,
+            voltage_steps=voltage_steps if voltage_mode else None,
+            voltage_settle_s=settle_time if voltage_mode else 0.0,
         )
         self._thread = QtCore.QThread()
         self._worker.moveToThread(self._thread)
@@ -259,9 +391,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._done_steps = 0
         self.ui.ScanprogressBar.setValue(0)
         self.ui.ScanTimers.setText(
-            "Loop #:    Time Elapsed:    Predicted remaining time:"
+            f"{self._loop_label} #:    Time Elapsed:    Predicted remaining time:"
         )
-        self._update_statusbar(text=f"Running… saving to {run_folder}")
+        summary = (
+            f"{self._loop_label}s: {loops} × {len(pixels)} pixels"
+        )
+        self._update_statusbar(text=f"Running… {summary} → {run_folder}")
         self._thread.start()
 
     def _abort_scan(self):
@@ -271,23 +406,59 @@ class MainWindow(QtWidgets.QMainWindow):
             self._worker.stop()
 
     # ---------------------- worker callbacks ----------------------
-    def _on_loop_started(self, loop_idx: int):
+    def _on_loop_started(self, loop_idx: int, metadata: Optional[dict] = None):
         self.data.fill(np.nan)
-        self._current_loop_tag = uuid.uuid4().hex[:6].upper()
+        voltage = None
+        if metadata and isinstance(metadata, dict):
+            voltage = metadata.get("voltage")
+        self._current_voltage = float(voltage) if voltage is not None else None
+        if self._current_voltage is not None:
+            self._current_loop_tag = self._voltage_file_tag(self._current_voltage)
+        else:
+            self._current_loop_tag = uuid.uuid4().hex[:6].upper()
         self._update_plots(reset=True)
-        self._update_statusbar(text=f"Loop {loop_idx} started…")
+        if self._current_voltage is not None:
+            total = len(self._voltage_sequence) or "?"
+            self._update_statusbar(
+                f"Voltage step {loop_idx}/{total}: {self._voltage_display(self._current_voltage)}"
+            )
+        else:
+            self._update_statusbar(text=f"Loop {loop_idx} started…")
         self._current_loop = loop_idx
 
-    def _on_loop_finished(self, loop_idx: int):
+    def _on_loop_finished(self, loop_idx: int, metadata: Optional[dict] = None):
         # save per-loop CSV (raw or processed according to checkbox)
         try:
             if not self._run_folder:
                 self._ensure_run_folder()
-            out_name = f"loop_{loop_idx:03d}_{self._current_loop_tag}_data.csv"
+            voltage = None
+            if metadata and isinstance(metadata, dict):
+                voltage = metadata.get("voltage")
+            if self._current_voltage is not None and voltage is None:
+                voltage = self._current_voltage
+            if voltage is not None:
+                tag = self._voltage_file_tag(float(voltage))
+                out_name = f"voltage_{loop_idx:03d}_{tag}_data.csv"
+            else:
+                out_name = f"loop_{loop_idx:03d}_{self._current_loop_tag}_data.csv"
             arr = self._apply_math(self.data) if self.save_processed else self.data
             np.savetxt(self._run_folder / out_name, arr, delimiter=",", fmt="%.5e")
             mode = "processed" if self.save_processed else "raw"
-            self._update_statusbar(text=f"Loop {loop_idx} saved ({mode})")
+            if voltage is not None:
+                heatmap_name = f"voltage_{loop_idx:03d}_{tag}_heatmap.png"
+                try:
+                    self.figure_heatmap.savefig(
+                        self._run_folder / heatmap_name,
+                        dpi=300,
+                        bbox_inches="tight",
+                    )
+                except Exception as exc:
+                    logging.warning(f"Failed to save heatmap for {heatmap_name}: {exc}")
+                self._update_statusbar(
+                    f"Saved {mode} data at {self._voltage_display(float(voltage))}"
+                )
+            else:
+                self._update_statusbar(text=f"Loop {loop_idx} saved ({mode})")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Loop Save Error", f"{e}")
 
@@ -301,8 +472,14 @@ class MainWindow(QtWidgets.QMainWindow):
         elapsed = time.time() - getattr(self, "_start_time", time.time())
         rate = self._done_steps / max(elapsed, 1e-9)
         remaining = (self._total_steps - self._done_steps) / max(rate, 1e-9)
+        loop_idx = getattr(self, "_current_loop", 1)
+        voltage_text = (
+            f"  Bias: {self._voltage_display(self._current_voltage)}"
+            if self._current_voltage is not None
+            else ""
+        )
         self.ui.ScanTimers.setText(
-            f"Loop {getattr(self,'_current_loop',1)}    "
+            f"{self._loop_label} {loop_idx}{voltage_text}    "
             f"Elapsed: {elapsed:5.1f}s    Remaining: {remaining:5.1f}s"
         )
         self._update_plots()
@@ -336,6 +513,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self, "Summary Save", f"Failed to save images: {e}"
             )
 
+        self._current_voltage = None
+        self._voltage_sequence = []
         self._update_statusbar(text="Scan finished.")
 
     def _handle_device_error(self, message: str):
@@ -583,11 +762,51 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_statusbar(self.read_sm_idn)
 
     def _connect_bias_smu(self):
-        # Stub for a second SMU, if/when you implement biasing.
-        QtWidgets.QMessageBox.information(
-            self, "Bias SMU", "Bias SMU hookup not implemented in this build."
-        )
-        self._update_statusbar("Bias SMU: (not connected)")
+        dlg = DevicePicker(self, title="Connect Bias SMU", show_gpib=True)
+        if dlg.exec() != QtWidgets.QDialog.Accepted:
+            return
+        selection, gpib_addr = dlg.get()
+        if not selection:
+            return
+        try:
+            if selection.upper().startswith(("USB", "GPIB", "TCPIP")):
+                adapter = VISAAdapter(selection)
+            elif PrologixAdapter:
+                adapter = PrologixAdapter(
+                    selection, gpib_addr or 6, gpib_read_timeout=3000
+                )
+                adapter.connection.timeout = 20000
+                adapter.write("++mode 1")
+                adapter.write("++auto 0")
+                adapter.write("++eoi 1")
+            else:
+                raise RuntimeError(
+                    "PyMeasure VISA/Prologix adapters not available."
+                )
+            self.bias_sm = Bias2400(adapter)
+            ident = "Unknown"
+            try:
+                ident = self.bias_sm.ask("*IDN?")
+            except Exception:
+                pass
+            try:
+                self.bias_sm.source_voltage = 0.0
+                self.bias_sm.disable_source()
+            except Exception as exc:
+                logging.warning(f"Failed to zero bias SMU on connect: {exc}")
+            self.bias_sm_idn = f"Bias SMU: {ident.strip()}"
+            QtWidgets.QMessageBox.information(
+                self,
+                "Bias SMU",
+                f"Connected: {ident}\nOutput zeroed and disabled.",
+            )
+        except Exception as e:
+            self.bias_sm = DummyBias2400()
+            self.bias_sm_idn = "Bias SMU: (not connected)"
+            QtWidgets.QMessageBox.critical(
+                self, "Bias SMU", f"Failed to connect: {e}"
+            )
+        self._update_statusbar(self.bias_sm_idn)
 
     def _connect_switch(self):
         dlg = DevicePicker(self, title="Connect Switch Board", show_gpib=False)

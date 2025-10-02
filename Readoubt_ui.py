@@ -105,10 +105,69 @@ class Ui_MainWindow(object):
 
         self.formLayout_2.setWidget(3, QFormLayout.ItemRole.FieldRole, self.loop_delay)
 
+        self.label_voltage_start = QLabel(self.scan_settings_box)
+        self.label_voltage_start.setObjectName(u"label_voltage_start")
+
+        self.formLayout_2.setWidget(4, QFormLayout.ItemRole.LabelRole, self.label_voltage_start)
+
+        self.spin_voltage_start = QDoubleSpinBox(self.scan_settings_box)
+        self.spin_voltage_start.setObjectName(u"spin_voltage_start")
+        self.spin_voltage_start.setDecimals(3)
+        self.spin_voltage_start.setMinimum(-200.000000000000000)
+        self.spin_voltage_start.setMaximum(200.000000000000000)
+        self.spin_voltage_start.setSingleStep(0.100000000000000)
+        self.spin_voltage_start.setValue(0.000000000000000)
+
+        self.formLayout_2.setWidget(4, QFormLayout.ItemRole.FieldRole, self.spin_voltage_start)
+
+        self.label_voltage_end = QLabel(self.scan_settings_box)
+        self.label_voltage_end.setObjectName(u"label_voltage_end")
+
+        self.formLayout_2.setWidget(5, QFormLayout.ItemRole.LabelRole, self.label_voltage_end)
+
+        self.spin_voltage_end = QDoubleSpinBox(self.scan_settings_box)
+        self.spin_voltage_end.setObjectName(u"spin_voltage_end")
+        self.spin_voltage_end.setDecimals(3)
+        self.spin_voltage_end.setMinimum(-200.000000000000000)
+        self.spin_voltage_end.setMaximum(200.000000000000000)
+        self.spin_voltage_end.setSingleStep(0.100000000000000)
+        self.spin_voltage_end.setValue(1.000000000000000)
+
+        self.formLayout_2.setWidget(5, QFormLayout.ItemRole.FieldRole, self.spin_voltage_end)
+
+        self.label_voltage_step = QLabel(self.scan_settings_box)
+        self.label_voltage_step.setObjectName(u"label_voltage_step")
+
+        self.formLayout_2.setWidget(6, QFormLayout.ItemRole.LabelRole, self.label_voltage_step)
+
+        self.spin_voltage_step = QDoubleSpinBox(self.scan_settings_box)
+        self.spin_voltage_step.setObjectName(u"spin_voltage_step")
+        self.spin_voltage_step.setDecimals(3)
+        self.spin_voltage_step.setMinimum(0.000100000000000)
+        self.spin_voltage_step.setMaximum(200.000000000000000)
+        self.spin_voltage_step.setSingleStep(0.100000000000000)
+        self.spin_voltage_step.setValue(0.100000000000000)
+
+        self.formLayout_2.setWidget(6, QFormLayout.ItemRole.FieldRole, self.spin_voltage_step)
+
+        self.label_voltage_settle = QLabel(self.scan_settings_box)
+        self.label_voltage_settle.setObjectName(u"label_voltage_settle")
+
+        self.formLayout_2.setWidget(7, QFormLayout.ItemRole.LabelRole, self.label_voltage_settle)
+
+        self.spin_voltage_settle = QDoubleSpinBox(self.scan_settings_box)
+        self.spin_voltage_settle.setObjectName(u"spin_voltage_settle")
+        self.spin_voltage_settle.setDecimals(3)
+        self.spin_voltage_settle.setMaximum(600.000000000000000)
+        self.spin_voltage_settle.setSingleStep(0.100000000000000)
+        self.spin_voltage_settle.setValue(0.200000000000000)
+
+        self.formLayout_2.setWidget(7, QFormLayout.ItemRole.FieldRole, self.spin_voltage_settle)
+
         self.label_nplc = QLabel(self.scan_settings_box)
         self.label_nplc.setObjectName(u"label_nplc")
 
-        self.formLayout_2.setWidget(4, QFormLayout.ItemRole.LabelRole, self.label_nplc)
+        self.formLayout_2.setWidget(8, QFormLayout.ItemRole.LabelRole, self.label_nplc)
 
         self.spin_nplc = QDoubleSpinBox(self.scan_settings_box)
         self.spin_nplc.setObjectName(u"spin_nplc")
@@ -117,22 +176,22 @@ class Ui_MainWindow(object):
         self.spin_nplc.setMaximum(25.000000000000000)
         self.spin_nplc.setValue(10.000000000000000)
 
-        self.formLayout_2.setWidget(4, QFormLayout.ItemRole.FieldRole, self.spin_nplc)
+        self.formLayout_2.setWidget(8, QFormLayout.ItemRole.FieldRole, self.spin_nplc)
 
         self.integration_time_label = QLabel(self.scan_settings_box)
         self.integration_time_label.setObjectName(u"integration_time_label")
 
-        self.formLayout_2.setWidget(5, QFormLayout.ItemRole.LabelRole, self.integration_time_label)
+        self.formLayout_2.setWidget(9, QFormLayout.ItemRole.LabelRole, self.integration_time_label)
 
         self.integration_time = QLabel(self.scan_settings_box)
         self.integration_time.setObjectName(u"integration_time")
 
-        self.formLayout_2.setWidget(5, QFormLayout.ItemRole.FieldRole, self.integration_time)
+        self.formLayout_2.setWidget(9, QFormLayout.ItemRole.FieldRole, self.integration_time)
 
         self.label_nsamp = QLabel(self.scan_settings_box)
         self.label_nsamp.setObjectName(u"label_nsamp")
 
-        self.formLayout_2.setWidget(6, QFormLayout.ItemRole.LabelRole, self.label_nsamp)
+        self.formLayout_2.setWidget(10, QFormLayout.ItemRole.LabelRole, self.label_nsamp)
 
         self.spin_nsamp = QSpinBox(self.scan_settings_box)
         self.spin_nsamp.setObjectName(u"spin_nsamp")
@@ -140,24 +199,24 @@ class Ui_MainWindow(object):
         self.spin_nsamp.setMaximum(100)
         self.spin_nsamp.setValue(1)
 
-        self.formLayout_2.setWidget(6, QFormLayout.ItemRole.FieldRole, self.spin_nsamp)
+        self.formLayout_2.setWidget(10, QFormLayout.ItemRole.FieldRole, self.spin_nsamp)
 
         self.check_auto_current_range = QCheckBox(self.scan_settings_box)
         self.check_auto_current_range.setObjectName(u"check_auto_current_range")
         self.check_auto_current_range.setChecked(True)
 
-        self.formLayout_2.setWidget(7, QFormLayout.ItemRole.LabelRole, self.check_auto_current_range)
+        self.formLayout_2.setWidget(11, QFormLayout.ItemRole.LabelRole, self.check_auto_current_range)
 
         self.label_manual_rng = QLabel(self.scan_settings_box)
         self.label_manual_rng.setObjectName(u"label_manual_rng")
 
-        self.formLayout_2.setWidget(8, QFormLayout.ItemRole.LabelRole, self.label_manual_rng)
+        self.formLayout_2.setWidget(12, QFormLayout.ItemRole.LabelRole, self.label_manual_rng)
 
         self.edit_current_range = QLineEdit(self.scan_settings_box)
         self.edit_current_range.setObjectName(u"edit_current_range")
         self.edit_current_range.setEnabled(False)
 
-        self.formLayout_2.setWidget(8, QFormLayout.ItemRole.FieldRole, self.edit_current_range)
+        self.formLayout_2.setWidget(12, QFormLayout.ItemRole.FieldRole, self.edit_current_range)
 
 
         self.verticalLayout.addWidget(self.scan_settings_box)
@@ -562,6 +621,10 @@ class Ui_MainWindow(object):
         self.label_loops.setText(QCoreApplication.translate("MainWindow", u"Loops:", None))
         self.loop_delay_label.setText(QCoreApplication.translate("MainWindow", u"Delay Between Loops (s)", None))
         self.loop_delay.setText(QCoreApplication.translate("MainWindow", u"1", None))
+        self.label_voltage_start.setText(QCoreApplication.translate("MainWindow", u"Start Voltage (V):", None))
+        self.label_voltage_end.setText(QCoreApplication.translate("MainWindow", u"End Voltage (V):", None))
+        self.label_voltage_step.setText(QCoreApplication.translate("MainWindow", u"Step Size (V):", None))
+        self.label_voltage_settle.setText(QCoreApplication.translate("MainWindow", u"Settling Time (s):", None))
         self.label_nplc.setText(QCoreApplication.translate("MainWindow", u"NPLC:", None))
         self.integration_time_label.setText(QCoreApplication.translate("MainWindow", u"Integration Time:", None))
         self.integration_time.setText(QCoreApplication.translate("MainWindow", u"-", None))
@@ -634,4 +697,3 @@ class Ui_MainWindow(object):
         self.btn_pause_resume.setText(QCoreApplication.translate("MainWindow", u"Pause", None))
         self.menuHardware.setTitle(QCoreApplication.translate("MainWindow", u"Hardware", None))
     # retranslateUi
-
