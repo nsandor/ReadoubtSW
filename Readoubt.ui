@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1091</width>
-    <height>957</height>
+    <width>1074</width>
+    <height>936</height>
    </rect>
   </property>
   <property name="minimumSize">
@@ -22,173 +22,187 @@
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout_0">
     <item>
-     <widget class="QSplitter" name="centralSplitter">
-      <property name="orientation">
-       <enum>Qt::Orientation::Horizontal</enum>
+     <widget class="QFrame" name="frame_2">
+      <property name="frameShape">
+       <enum>QFrame::Shape::StyledPanel</enum>
       </property>
-      <widget class="QWidget" name="controlsPanel">
-       <layout class="QVBoxLayout" name="controlsLayout">
-        <item>
-         <widget class="QGroupBox" name="scan_settings_box">
-          <property name="minimumSize">
-           <size>
-            <width>0</width>
-            <height>317</height>
-           </size>
-          </property>
-          <property name="title">
-           <string>Scan Settings</string>
-          </property>
-          <layout class="QFormLayout" name="scan_settings_layout">
-           <item row="0" column="0">
-            <widget class="QLabel" name="Measurement_type_label">
-             <property name="text">
-              <string>Measurement Type</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QComboBox" name="Measurement_type_combobox">
-             <item>
-              <property name="text">
-               <string>Current - Time</string>
-              </property>
+      <property name="frameShadow">
+       <enum>QFrame::Shadow::Raised</enum>
+      </property>
+      <layout class="QHBoxLayout" name="horizontalLayout">
+       <item>
+        <widget class="QFrame" name="frame">
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>717</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>358</width>
+           <height>16777215</height>
+          </size>
+         </property>
+         <property name="frameShape">
+          <enum>QFrame::Shape::StyledPanel</enum>
+         </property>
+         <property name="frameShadow">
+          <enum>QFrame::Shadow::Raised</enum>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout">
+          <item>
+           <widget class="QGroupBox" name="scan_settings_box">
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="title">
+             <string>Scan Settings</string>
+            </property>
+            <layout class="QFormLayout" name="formLayout_2">
+             <item row="0" column="0">
+              <widget class="QLabel" name="Measurement_type_label">
+               <property name="text">
+                <string>Measurement Type</string>
+               </property>
+              </widget>
              </item>
-             <item>
-              <property name="text">
-               <string>Current - Voltage</string>
-              </property>
+             <item row="0" column="1">
+              <widget class="QComboBox" name="Measurement_type_combobox">
+               <item>
+                <property name="text">
+                 <string>Current - Time</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Current - Voltage</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Imaging</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string/>
+                </property>
+               </item>
+              </widget>
              </item>
-             <item>
-              <property name="text">
-               <string>Imaging</string>
-              </property>
+             <item row="1" column="0">
+              <widget class="QLabel" name="label_pixels">
+               <property name="text">
+                <string>Pixels to scan:</string>
+               </property>
+              </widget>
              </item>
-             <item>
-              <property name="text">
-               <string/>
-              </property>
+             <item row="1" column="1">
+              <widget class="QLineEdit" name="edit_pixel_spec">
+               <property name="text">
+                <string>1-100</string>
+               </property>
+               <property name="placeholderText">
+                <string>Ranges and indices, e.g., 50-70, 1, 10-12</string>
+               </property>
+              </widget>
              </item>
-            </widget>
-           </item>
-           <item row="2" column="0">
-            <widget class="QLabel" name="label_pixels">
-             <property name="text">
-              <string>Pixels to scan:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="2" column="1">
-            <widget class="QLineEdit" name="edit_pixel_spec">
-             <property name="text">
-              <string>1-100</string>
-             </property>
-             <property name="placeholderText">
-              <string>Ranges and indices, e.g., 50-70, 1, 10-12</string>
-             </property>
-            </widget>
-           </item>
-           <item row="3" column="0">
-            <widget class="QLabel" name="label_loops">
-             <property name="text">
-              <string>Loops:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="3" column="1">
-            <widget class="QSpinBox" name="spin_loops">
-             <property name="minimum">
-              <number>1</number>
-             </property>
-             <property name="maximum">
-              <number>100000</number>
-             </property>
-             <property name="value">
-              <number>1</number>
-             </property>
-            </widget>
-           </item>
-           <item row="4" column="0">
-            <widget class="QLabel" name="loop_delay_label">
-             <property name="text">
-              <string>Delay Between Loops (s)</string>
-             </property>
-            </widget>
-           </item>
-           <item row="4" column="1">
-            <widget class="QLineEdit" name="loop_delay">
-             <property name="text">
-              <string>1</string>
-             </property>
-            </widget>
-           </item>
-           <item row="5" column="0">
-            <widget class="QLabel" name="label_nplc">
-             <property name="text">
-              <string>NPLC:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="5" column="1">
-            <widget class="QDoubleSpinBox" name="spin_nplc">
-             <property name="decimals">
-              <number>2</number>
-             </property>
-             <property name="minimum">
-              <double>0.010000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>25.000000000000000</double>
-             </property>
-             <property name="value">
-              <double>10.000000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item row="6" column="0">
-            <widget class="QLabel" name="integration_time_label">
-             <property name="text">
-              <string>Integration Time:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="6" column="1">
-            <widget class="QLabel" name="integration_time">
-             <property name="text">
-              <string>-</string>
-             </property>
-            </widget>
-           </item>
-           <item row="7" column="0">
-            <widget class="QLabel" name="label_nsamp">
-             <property name="text">
-              <string>Samples / pixel:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="7" column="1">
-            <widget class="QSpinBox" name="spin_nsamp">
-             <property name="minimum">
-              <number>1</number>
-             </property>
-             <property name="maximum">
-              <number>100</number>
-             </property>
-             <property name="value">
-              <number>1</number>
-             </property>
-            </widget>
-           </item>
-           <item row="8" column="0">
-            <widget class="QLabel" name="label_auto_range">
-             <property name="text">
-              <string/>
-             </property>
-            </widget>
-           </item>
-           <item row="8" column="1">
-            <layout class="QHBoxLayout" name="cur_rng_row">
-             <item>
+             <item row="2" column="0">
+              <widget class="QLabel" name="label_loops">
+               <property name="text">
+                <string>Loops:</string>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="1">
+              <widget class="QSpinBox" name="spin_loops">
+               <property name="minimum">
+                <number>1</number>
+               </property>
+               <property name="maximum">
+                <number>100000</number>
+               </property>
+               <property name="value">
+                <number>1</number>
+               </property>
+              </widget>
+             </item>
+             <item row="3" column="0">
+              <widget class="QLabel" name="loop_delay_label">
+               <property name="text">
+                <string>Delay Between Loops (s)</string>
+               </property>
+              </widget>
+             </item>
+             <item row="3" column="1">
+              <widget class="QLineEdit" name="loop_delay">
+               <property name="text">
+                <string>1</string>
+               </property>
+              </widget>
+             </item>
+             <item row="4" column="0">
+              <widget class="QLabel" name="label_nplc">
+               <property name="text">
+                <string>NPLC:</string>
+               </property>
+              </widget>
+             </item>
+             <item row="4" column="1">
+              <widget class="QDoubleSpinBox" name="spin_nplc">
+               <property name="decimals">
+                <number>2</number>
+               </property>
+               <property name="minimum">
+                <double>0.010000000000000</double>
+               </property>
+               <property name="maximum">
+                <double>25.000000000000000</double>
+               </property>
+               <property name="value">
+                <double>10.000000000000000</double>
+               </property>
+              </widget>
+             </item>
+             <item row="5" column="0">
+              <widget class="QLabel" name="integration_time_label">
+               <property name="text">
+                <string>Integration Time:</string>
+               </property>
+              </widget>
+             </item>
+             <item row="5" column="1">
+              <widget class="QLabel" name="integration_time">
+               <property name="text">
+                <string>-</string>
+               </property>
+              </widget>
+             </item>
+             <item row="6" column="0">
+              <widget class="QLabel" name="label_nsamp">
+               <property name="text">
+                <string>Samples / pixel:</string>
+               </property>
+              </widget>
+             </item>
+             <item row="6" column="1">
+              <widget class="QSpinBox" name="spin_nsamp">
+               <property name="minimum">
+                <number>1</number>
+               </property>
+               <property name="maximum">
+                <number>100</number>
+               </property>
+               <property name="value">
+                <number>1</number>
+               </property>
+              </widget>
+             </item>
+             <item row="7" column="0">
               <widget class="QCheckBox" name="check_auto_current_range">
                <property name="text">
                 <string>Auto current range</string>
@@ -198,419 +212,464 @@
                </property>
               </widget>
              </item>
-             <item>
-              <spacer name="hspacer_cur_rng">
-               <property name="orientation">
-                <enum>Qt::Orientation::Horizontal</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>40</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-            </layout>
-           </item>
-           <item row="9" column="0">
-            <widget class="QLabel" name="label_manual_rng">
-             <property name="text">
-              <string>Manual range (A):</string>
-             </property>
-            </widget>
-           </item>
-           <item row="9" column="1">
-            <widget class="QLineEdit" name="edit_current_range">
-             <property name="enabled">
-              <bool>false</bool>
-             </property>
-             <property name="text">
-              <string>1e-7</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="save_box">
-          <property name="title">
-           <string>Output &amp; Saving</string>
-          </property>
-          <layout class="QFormLayout" name="save_layout">
-           <item row="0" column="0">
-            <widget class="QLabel" name="label_exp">
-             <property name="text">
-              <string>Experiment Name:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QLineEdit" name="edit_exp_name">
-             <property name="text">
-              <string>MyExperiment</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0">
-            <widget class="QLabel" name="label_out">
-             <property name="text">
-              <string>Output Folder:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="1">
-            <layout class="QHBoxLayout" name="h_folder">
-             <item>
-              <widget class="QLineEdit" name="edit_output_folder">
-               <property name="readOnly">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="btn_browse_folder">
+             <item row="8" column="0">
+              <widget class="QLabel" name="label_manual_rng">
                <property name="text">
-                <string>Browse…</string>
+                <string>Manual range (A):</string>
+               </property>
+              </widget>
+             </item>
+             <item row="8" column="1">
+              <widget class="QLineEdit" name="edit_current_range">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+               <property name="text">
+                <string>1e-7</string>
                </property>
               </widget>
              </item>
             </layout>
-           </item>
-           <item row="2" column="0">
-            <widget class="QLabel" name="label_autosave">
-             <property name="text">
-              <string/>
-             </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="save_box">
+            <property name="title">
+             <string>Output &amp; Saving</string>
+            </property>
+            <layout class="QFormLayout" name="save_layout">
+             <item row="0" column="0">
+              <widget class="QLabel" name="label_exp">
+               <property name="text">
+                <string>Experiment Name:</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QLineEdit" name="edit_exp_name">
+               <property name="text">
+                <string>MyExperiment</string>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="label_out">
+               <property name="text">
+                <string>Output Folder:</string>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <layout class="QHBoxLayout" name="h_folder">
+               <item>
+                <widget class="QLineEdit" name="edit_output_folder">
+                 <property name="readOnly">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_browse_folder">
+                 <property name="text">
+                  <string>Browse…</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item row="2" column="0">
+              <widget class="QLabel" name="label_autosave">
+               <property name="text">
+                <string/>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="groupBox">
+            <property name="title">
+             <string>Visualization Settings</string>
+            </property>
+            <layout class="QGridLayout" name="gridLayout">
+             <item row="0" column="0">
+              <widget class="QTabWidget" name="plot_settings_stack">
+               <property name="currentIndex">
+                <number>0</number>
+               </property>
+               <widget class="QWidget" name="plot_settings_stackPage1">
+                <attribute name="title">
+                 <string>Heatmap</string>
+                </attribute>
+                <layout class="QFormLayout" name="heatmap_settings_layout">
+                 <item row="0" column="0">
+                  <widget class="QLabel" name="label_hm_title">
+                   <property name="text">
+                    <string>Title:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="1">
+                  <widget class="QLineEdit" name="edit_heatmap_title">
+                   <property name="text">
+                    <string>Photodiode Current</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="label_cmap">
+                   <property name="text">
+                    <string>Colormap:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="QComboBox" name="combo_colormap">
+                   <item>
+                    <property name="text">
+                     <string>inferno</string>
+                    </property>
+                   </item>
+                   <item>
+                    <property name="text">
+                     <string>viridis</string>
+                    </property>
+                   </item>
+                   <item>
+                    <property name="text">
+                     <string>plasma</string>
+                    </property>
+                   </item>
+                   <item>
+                    <property name="text">
+                     <string>magma</string>
+                    </property>
+                   </item>
+                   <item>
+                    <property name="text">
+                     <string>cividis</string>
+                    </property>
+                   </item>
+                   <item>
+                    <property name="text">
+                     <string>gray_r</string>
+                    </property>
+                   </item>
+                   <item>
+                    <property name="text">
+                     <string>jet</string>
+                    </property>
+                   </item>
+                  </widget>
+                 </item>
+                 <item row="2" column="0">
+                  <widget class="QLabel" name="label_log">
+                   <property name="text">
+                    <string/>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="1">
+                  <widget class="QCheckBox" name="check_log_scale_heatmap">
+                   <property name="text">
+                    <string>Logarithmic Color Scale</string>
+                   </property>
+                   <property name="checked">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="3" column="0">
+                  <widget class="QLabel" name="label_auto">
+                   <property name="text">
+                    <string/>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="3" column="1">
+                  <widget class="QCheckBox" name="check_auto_scale">
+                   <property name="text">
+                    <string>Auto-scale Color Limit</string>
+                   </property>
+                   <property name="checked">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="4" column="0">
+                  <widget class="QLabel" name="label_manual_limits">
+                   <property name="text">
+                    <string>Manual Limits:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="4" column="1">
+                  <layout class="QHBoxLayout" name="minmax_layout">
+                   <item>
+                    <widget class="QLabel" name="label_vmin">
+                     <property name="text">
+                      <string>Min:</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QLineEdit" name="edit_vmin">
+                     <property name="enabled">
+                      <bool>false</bool>
+                     </property>
+                     <property name="text">
+                      <string>1e-10</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QLabel" name="label_vmax">
+                     <property name="text">
+                      <string>Max:</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QLineEdit" name="edit_vmax">
+                     <property name="enabled">
+                      <bool>false</bool>
+                     </property>
+                     <property name="text">
+                      <string>1e-7</string>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </item>
+                 <item row="5" column="0">
+                  <widget class="QLabel" name="label_showvals">
+                   <property name="text">
+                    <string/>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="5" column="1">
+                  <widget class="QCheckBox" name="check_show_values">
+                   <property name="text">
+                    <string>Show Pixel Values</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="6" column="0">
+                  <widget class="QLabel" name="label_export_hm">
+                   <property name="text">
+                    <string/>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="6" column="1">
+                  <widget class="QPushButton" name="btn_export_heatmap">
+                   <property name="text">
+                    <string>Export Heatmap PNG…</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+               <widget class="QWidget" name="plot_settings_stackPage2">
+                <attribute name="title">
+                 <string>Histogram</string>
+                </attribute>
+                <layout class="QFormLayout" name="hist_settings_layout">
+                 <item row="0" column="0">
+                  <widget class="QLabel" name="label_hist_title">
+                   <property name="text">
+                    <string>Title:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="1">
+                  <widget class="QLineEdit" name="edit_hist_title">
+                   <property name="text">
+                    <string>Current Distribution</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="label_bins">
+                   <property name="text">
+                    <string>Number of Bins:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="QSpinBox" name="spin_bins">
+                   <property name="minimum">
+                    <number>5</number>
+                   </property>
+                   <property name="maximum">
+                    <number>200</number>
+                   </property>
+                   <property name="value">
+                    <number>25</number>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="0">
+                  <widget class="QLabel" name="label_logy">
+                   <property name="text">
+                    <string/>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="1">
+                  <widget class="QCheckBox" name="check_log_scale_hist">
+                   <property name="text">
+                    <string>Logarithmic Y-Axis</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="3" column="0">
+                  <widget class="QLabel" name="label_export_hist">
+                   <property name="text">
+                    <string/>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="3" column="1">
+                  <widget class="QPushButton" name="btn_export_hist">
+                   <property name="text">
+                    <string>Export Histogram PNG…</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+               <widget class="QWidget" name="tab">
+                <attribute name="title">
+                 <string>Math</string>
+                </attribute>
+                <layout class="QFormLayout" name="formLayout">
+                 <item row="0" column="0">
+                  <widget class="QLabel" name="label_ref">
+                   <property name="text">
+                    <string>Reference:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="1">
+                  <layout class="QHBoxLayout" name="ref_row">
+                   <item>
+                    <widget class="QPushButton" name="btn_load_ref">
+                     <property name="text">
+                      <string>Load Ref CSV…</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QLabel" name="lbl_ref_info">
+                     <property name="text">
+                      <string>(none)</string>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="label_op">
+                   <property name="text">
+                    <string>Operation:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="QComboBox" name="combo_math">
+                   <item>
+                    <property name="text">
+                     <string>None</string>
+                    </property>
+                   </item>
+                   <item>
+                    <property name="text">
+                     <string>Divide (live / ref)</string>
+                    </property>
+                   </item>
+                   <item>
+                    <property name="text">
+                     <string>Subtract (live - ref)</string>
+                    </property>
+                   </item>
+                  </widget>
+                 </item>
+                 <item row="2" column="0">
+                  <widget class="QLabel" name="label_save_proc">
+                   <property name="text">
+                    <string/>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="1">
+                  <widget class="QCheckBox" name="check_save_processed">
+                   <property name="text">
+                    <string>Save processed CSVs instead of raw</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QSplitter" name="centralSplitter">
+         <property name="orientation">
+          <enum>Qt::Orientation::Horizontal</enum>
+         </property>
+         <widget class="QWidget" name="plotArea">
+          <layout class="QVBoxLayout" name="plot_area_layout">
+           <item>
+            <widget class="QComboBox" name="plot_selector">
+             <item>
+              <property name="text">
+               <string>Heatmap</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Histogram</string>
+              </property>
+             </item>
             </widget>
            </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="groupBox">
-          <property name="title">
-           <string>Visualization Settings</string>
-          </property>
-          <layout class="QGridLayout" name="gridLayout">
-           <item row="0" column="0">
-            <widget class="QTabWidget" name="plot_settings_stack">
+           <item>
+            <widget class="QStackedWidget" name="plot_stack">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>500</width>
+               <height>500</height>
+              </size>
+             </property>
              <property name="currentIndex">
               <number>0</number>
              </property>
-             <widget class="QWidget" name="plot_settings_stackPage1" native="true">
-              <attribute name="title">
-               <string>Heatmap</string>
-              </attribute>
-              <layout class="QFormLayout" name="heatmap_settings_layout">
-               <item row="0" column="0">
-                <widget class="QLabel" name="label_hm_title">
-                 <property name="text">
-                  <string>Title:</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="0" column="1">
-                <widget class="QLineEdit" name="edit_heatmap_title">
-                 <property name="text">
-                  <string>Photodiode Current</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="0">
-                <widget class="QLabel" name="label_cmap">
-                 <property name="text">
-                  <string>Colormap:</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="1">
-                <widget class="QComboBox" name="combo_colormap">
-                 <item>
-                  <property name="text">
-                   <string>inferno</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>viridis</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>plasma</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>magma</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>cividis</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>gray_r</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>jet</string>
-                  </property>
-                 </item>
-                </widget>
-               </item>
-               <item row="2" column="0">
-                <widget class="QLabel" name="label_log">
-                 <property name="text">
-                  <string/>
-                 </property>
-                </widget>
-               </item>
-               <item row="2" column="1">
-                <widget class="QCheckBox" name="check_log_scale_heatmap">
-                 <property name="text">
-                  <string>Logarithmic Color Scale</string>
-                 </property>
-                 <property name="checked">
-                  <bool>true</bool>
-                 </property>
-                </widget>
-               </item>
-               <item row="3" column="0">
-                <widget class="QLabel" name="label_auto">
-                 <property name="text">
-                  <string/>
-                 </property>
-                </widget>
-               </item>
-               <item row="3" column="1">
-                <widget class="QCheckBox" name="check_auto_scale">
-                 <property name="text">
-                  <string>Auto-scale Color Limit</string>
-                 </property>
-                 <property name="checked">
-                  <bool>true</bool>
-                 </property>
-                </widget>
-               </item>
-               <item row="4" column="0">
-                <widget class="QLabel" name="label_manual_limits">
-                 <property name="text">
-                  <string>Manual Limits:</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="4" column="1">
-                <layout class="QHBoxLayout" name="minmax_layout">
-                 <item>
-                  <widget class="QLabel" name="label_vmin">
-                   <property name="text">
-                    <string>Min:</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QLineEdit" name="edit_vmin">
-                   <property name="enabled">
-                    <bool>false</bool>
-                   </property>
-                   <property name="text">
-                    <string>1e-10</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QLabel" name="label_vmax">
-                   <property name="text">
-                    <string>Max:</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QLineEdit" name="edit_vmax">
-                   <property name="enabled">
-                    <bool>false</bool>
-                   </property>
-                   <property name="text">
-                    <string>1e-7</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </item>
-               <item row="5" column="0">
-                <widget class="QLabel" name="label_showvals">
-                 <property name="text">
-                  <string/>
-                 </property>
-                </widget>
-               </item>
-               <item row="5" column="1">
-                <widget class="QCheckBox" name="check_show_values">
-                 <property name="text">
-                  <string>Show Pixel Values</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="6" column="0">
-                <widget class="QLabel" name="label_export_hm">
-                 <property name="text">
-                  <string/>
-                 </property>
-                </widget>
-               </item>
-               <item row="6" column="1">
-                <widget class="QPushButton" name="btn_export_heatmap">
-                 <property name="text">
-                  <string>Export Heatmap PNG…</string>
-                 </property>
-                </widget>
+             <widget class="QWidget" name="heatmap_page">
+              <layout class="QVBoxLayout" name="heatmap_page_layout">
+               <item>
+                <layout class="QVBoxLayout" name="layout_canvas_heatmap"/>
                </item>
               </layout>
              </widget>
-             <widget class="QWidget" name="plot_settings_stackPage2" native="true">
-              <attribute name="title">
-               <string>Histogram</string>
-              </attribute>
-              <layout class="QFormLayout" name="hist_settings_layout">
-               <item row="0" column="0">
-                <widget class="QLabel" name="label_hist_title">
-                 <property name="text">
-                  <string>Title:</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="0" column="1">
-                <widget class="QLineEdit" name="edit_hist_title">
-                 <property name="text">
-                  <string>Current Distribution</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="0">
-                <widget class="QLabel" name="label_bins">
-                 <property name="text">
-                  <string>Number of Bins:</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="1">
-                <widget class="QSpinBox" name="spin_bins">
-                 <property name="minimum">
-                  <number>5</number>
-                 </property>
-                 <property name="maximum">
-                  <number>200</number>
-                 </property>
-                 <property name="value">
-                  <number>25</number>
-                 </property>
-                </widget>
-               </item>
-               <item row="2" column="0">
-                <widget class="QLabel" name="label_logy">
-                 <property name="text">
-                  <string/>
-                 </property>
-                </widget>
-               </item>
-               <item row="2" column="1">
-                <widget class="QCheckBox" name="check_log_scale_hist">
-                 <property name="text">
-                  <string>Logarithmic Y-Axis</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="3" column="0">
-                <widget class="QLabel" name="label_export_hist">
-                 <property name="text">
-                  <string/>
-                 </property>
-                </widget>
-               </item>
-               <item row="3" column="1">
-                <widget class="QPushButton" name="btn_export_hist">
-                 <property name="text">
-                  <string>Export Histogram PNG…</string>
-                 </property>
-                </widget>
-               </item>
-              </layout>
-             </widget>
-             <widget class="QWidget" name="tab">
-              <attribute name="title">
-               <string>Math</string>
-              </attribute>
-              <layout class="QFormLayout" name="formLayout">
-               <item row="0" column="0">
-                <widget class="QLabel" name="label_ref">
-                 <property name="text">
-                  <string>Reference:</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="0" column="1">
-                <layout class="QHBoxLayout" name="ref_row">
-                 <item>
-                  <widget class="QPushButton" name="btn_load_ref">
-                   <property name="text">
-                    <string>Load Ref CSV…</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QLabel" name="lbl_ref_info">
-                   <property name="text">
-                    <string>(none)</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </item>
-               <item row="1" column="0">
-                <widget class="QLabel" name="label_op">
-                 <property name="text">
-                  <string>Operation:</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="1">
-                <widget class="QComboBox" name="combo_math">
-                 <item>
-                  <property name="text">
-                   <string>None</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>Divide (live / ref)</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>Subtract (live - ref)</string>
-                  </property>
-                 </item>
-                </widget>
-               </item>
-               <item row="2" column="0">
-                <widget class="QLabel" name="label_save_proc">
-                 <property name="text">
-                  <string/>
-                 </property>
-                </widget>
-               </item>
-               <item row="2" column="1">
-                <widget class="QCheckBox" name="check_save_processed">
-                 <property name="text">
-                  <string>Save processed CSVs instead of raw</string>
-                 </property>
-                </widget>
+             <widget class="QWidget" name="hist_page">
+              <layout class="QVBoxLayout" name="hist_page_layout">
+               <item>
+                <layout class="QVBoxLayout" name="layout_canvas_hist"/>
                </item>
               </layout>
              </widget>
@@ -618,54 +677,15 @@
            </item>
           </layout>
          </widget>
-        </item>
-       </layout>
-      </widget>
-      <widget class="QWidget" name="plotArea">
-       <layout class="QVBoxLayout" name="plot_area_layout">
-        <item>
-         <widget class="QComboBox" name="plot_selector">
-          <item>
-           <property name="text">
-            <string>Heatmap</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>Histogram</string>
-           </property>
-          </item>
-         </widget>
-        </item>
-        <item>
-         <widget class="QStackedWidget" name="plot_stack">
-          <property name="currentIndex">
-           <number>0</number>
-          </property>
-          <widget class="QWidget" name="heatmap_page">
-           <layout class="QVBoxLayout" name="heatmap_page_layout">
-            <item>
-             <layout class="QVBoxLayout" name="layout_canvas_heatmap"/>
-            </item>
-           </layout>
-          </widget>
-          <widget class="QWidget" name="hist_page">
-           <layout class="QVBoxLayout" name="hist_page_layout">
-            <item>
-             <layout class="QVBoxLayout" name="layout_canvas_hist"/>
-            </item>
-           </layout>
-          </widget>
-         </widget>
-        </item>
-       </layout>
-      </widget>
+        </widget>
+       </item>
+      </layout>
      </widget>
     </item>
     <item>
      <widget class="QProgressBar" name="ScanprogressBar">
       <property name="value">
-       <number>24</number>
+       <number>0</number>
       </property>
      </widget>
     </item>
@@ -673,6 +693,9 @@
      <widget class="QLabel" name="ScanTimers">
       <property name="text">
        <string>Loop #:                    Time Elapsed:                   Predicted remaining time:</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignmentFlag::AlignCenter</set>
       </property>
      </widget>
     </item>
@@ -705,7 +728,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1091</width>
+     <width>1074</width>
      <height>22</height>
     </rect>
    </property>
