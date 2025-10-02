@@ -228,7 +228,7 @@ class Ui_MainWindow(object):
         self.label_cmap = QLabel(self.plot_settings_stackPage1)
         self.label_cmap.setObjectName(u"label_cmap")
 
-        self.heatmap_settings_layout.setWidget(1, QFormLayout.ItemRole.LabelRole, self.label_cmap)
+        self.heatmap_settings_layout.setWidget(2, QFormLayout.ItemRole.LabelRole, self.label_cmap)
 
         self.combo_colormap = QComboBox(self.plot_settings_stackPage1)
         self.combo_colormap.addItem("")
@@ -240,34 +240,34 @@ class Ui_MainWindow(object):
         self.combo_colormap.addItem("")
         self.combo_colormap.setObjectName(u"combo_colormap")
 
-        self.heatmap_settings_layout.setWidget(1, QFormLayout.ItemRole.FieldRole, self.combo_colormap)
+        self.heatmap_settings_layout.setWidget(2, QFormLayout.ItemRole.FieldRole, self.combo_colormap)
 
         self.label_log = QLabel(self.plot_settings_stackPage1)
         self.label_log.setObjectName(u"label_log")
 
-        self.heatmap_settings_layout.setWidget(2, QFormLayout.ItemRole.LabelRole, self.label_log)
+        self.heatmap_settings_layout.setWidget(3, QFormLayout.ItemRole.LabelRole, self.label_log)
 
         self.check_log_scale_heatmap = QCheckBox(self.plot_settings_stackPage1)
         self.check_log_scale_heatmap.setObjectName(u"check_log_scale_heatmap")
-        self.check_log_scale_heatmap.setChecked(True)
+        self.check_log_scale_heatmap.setChecked(False)
 
-        self.heatmap_settings_layout.setWidget(2, QFormLayout.ItemRole.FieldRole, self.check_log_scale_heatmap)
+        self.heatmap_settings_layout.setWidget(3, QFormLayout.ItemRole.FieldRole, self.check_log_scale_heatmap)
 
         self.label_auto = QLabel(self.plot_settings_stackPage1)
         self.label_auto.setObjectName(u"label_auto")
 
-        self.heatmap_settings_layout.setWidget(3, QFormLayout.ItemRole.LabelRole, self.label_auto)
+        self.heatmap_settings_layout.setWidget(4, QFormLayout.ItemRole.LabelRole, self.label_auto)
 
         self.check_auto_scale = QCheckBox(self.plot_settings_stackPage1)
         self.check_auto_scale.setObjectName(u"check_auto_scale")
-        self.check_auto_scale.setChecked(True)
+        self.check_auto_scale.setChecked(False)
 
-        self.heatmap_settings_layout.setWidget(3, QFormLayout.ItemRole.FieldRole, self.check_auto_scale)
+        self.heatmap_settings_layout.setWidget(4, QFormLayout.ItemRole.FieldRole, self.check_auto_scale)
 
         self.label_manual_limits = QLabel(self.plot_settings_stackPage1)
         self.label_manual_limits.setObjectName(u"label_manual_limits")
 
-        self.heatmap_settings_layout.setWidget(4, QFormLayout.ItemRole.LabelRole, self.label_manual_limits)
+        self.heatmap_settings_layout.setWidget(5, QFormLayout.ItemRole.LabelRole, self.label_manual_limits)
 
         self.minmax_layout = QHBoxLayout()
         self.minmax_layout.setObjectName(u"minmax_layout")
@@ -278,7 +278,7 @@ class Ui_MainWindow(object):
 
         self.edit_vmin = QLineEdit(self.plot_settings_stackPage1)
         self.edit_vmin.setObjectName(u"edit_vmin")
-        self.edit_vmin.setEnabled(False)
+        self.edit_vmin.setEnabled(True)
 
         self.minmax_layout.addWidget(self.edit_vmin)
 
@@ -289,32 +289,47 @@ class Ui_MainWindow(object):
 
         self.edit_vmax = QLineEdit(self.plot_settings_stackPage1)
         self.edit_vmax.setObjectName(u"edit_vmax")
-        self.edit_vmax.setEnabled(False)
+        self.edit_vmax.setEnabled(True)
 
         self.minmax_layout.addWidget(self.edit_vmax)
 
 
-        self.heatmap_settings_layout.setLayout(4, QFormLayout.ItemRole.FieldRole, self.minmax_layout)
+        self.heatmap_settings_layout.setLayout(5, QFormLayout.ItemRole.FieldRole, self.minmax_layout)
 
         self.label_showvals = QLabel(self.plot_settings_stackPage1)
         self.label_showvals.setObjectName(u"label_showvals")
 
-        self.heatmap_settings_layout.setWidget(5, QFormLayout.ItemRole.LabelRole, self.label_showvals)
+        self.heatmap_settings_layout.setWidget(6, QFormLayout.ItemRole.LabelRole, self.label_showvals)
 
         self.check_show_values = QCheckBox(self.plot_settings_stackPage1)
         self.check_show_values.setObjectName(u"check_show_values")
+        self.check_show_values.setChecked(True)
 
-        self.heatmap_settings_layout.setWidget(5, QFormLayout.ItemRole.FieldRole, self.check_show_values)
+        self.heatmap_settings_layout.setWidget(6, QFormLayout.ItemRole.FieldRole, self.check_show_values)
 
         self.label_export_hm = QLabel(self.plot_settings_stackPage1)
         self.label_export_hm.setObjectName(u"label_export_hm")
 
-        self.heatmap_settings_layout.setWidget(6, QFormLayout.ItemRole.LabelRole, self.label_export_hm)
+        self.heatmap_settings_layout.setWidget(7, QFormLayout.ItemRole.LabelRole, self.label_export_hm)
 
         self.btn_export_heatmap = QPushButton(self.plot_settings_stackPage1)
         self.btn_export_heatmap.setObjectName(u"btn_export_heatmap")
 
-        self.heatmap_settings_layout.setWidget(6, QFormLayout.ItemRole.FieldRole, self.btn_export_heatmap)
+        self.heatmap_settings_layout.setWidget(7, QFormLayout.ItemRole.FieldRole, self.btn_export_heatmap)
+
+        self.label_units = QLabel(self.plot_settings_stackPage1)
+        self.label_units.setObjectName(u"label_units")
+
+        self.heatmap_settings_layout.setWidget(1, QFormLayout.ItemRole.LabelRole, self.label_units)
+
+        self.combo_units = QComboBox(self.plot_settings_stackPage1)
+        self.combo_units.addItem("")
+        self.combo_units.addItem("")
+        self.combo_units.addItem("")
+        self.combo_units.addItem("")
+        self.combo_units.setObjectName(u"combo_units")
+
+        self.heatmap_settings_layout.setWidget(1, QFormLayout.ItemRole.FieldRole, self.combo_units)
 
         self.plot_settings_stack.addTab(self.plot_settings_stackPage1, "")
         self.plot_settings_stackPage2 = QWidget()
@@ -522,6 +537,7 @@ class Ui_MainWindow(object):
         self.retranslateUi(MainWindow)
 
         self.plot_settings_stack.setCurrentIndex(0)
+        self.combo_units.setCurrentIndex(1)
         self.plot_stack.setCurrentIndex(0)
 
 
@@ -577,13 +593,19 @@ class Ui_MainWindow(object):
         self.check_auto_scale.setText(QCoreApplication.translate("MainWindow", u"Auto-scale Color Limit", None))
         self.label_manual_limits.setText(QCoreApplication.translate("MainWindow", u"Manual Limits:", None))
         self.label_vmin.setText(QCoreApplication.translate("MainWindow", u"Min:", None))
-        self.edit_vmin.setText(QCoreApplication.translate("MainWindow", u"1e-10", None))
+        self.edit_vmin.setText(QCoreApplication.translate("MainWindow", u"0.1", None))
         self.label_vmax.setText(QCoreApplication.translate("MainWindow", u"Max:", None))
-        self.edit_vmax.setText(QCoreApplication.translate("MainWindow", u"1e-7", None))
+        self.edit_vmax.setText(QCoreApplication.translate("MainWindow", u"10", None))
         self.label_showvals.setText("")
         self.check_show_values.setText(QCoreApplication.translate("MainWindow", u"Show Pixel Values", None))
         self.label_export_hm.setText("")
         self.btn_export_heatmap.setText(QCoreApplication.translate("MainWindow", u"Export Heatmap PNG\u2026", None))
+        self.label_units.setText(QCoreApplication.translate("MainWindow", u"Units", None))
+        self.combo_units.setItemText(0, QCoreApplication.translate("MainWindow", u"pA", None))
+        self.combo_units.setItemText(1, QCoreApplication.translate("MainWindow", u"nA", None))
+        self.combo_units.setItemText(2, QCoreApplication.translate("MainWindow", u"uA", None))
+        self.combo_units.setItemText(3, QCoreApplication.translate("MainWindow", u"mA", None))
+
         self.plot_settings_stack.setTabText(self.plot_settings_stack.indexOf(self.plot_settings_stackPage1), QCoreApplication.translate("MainWindow", u"Heatmap", None))
         self.label_hist_title.setText(QCoreApplication.translate("MainWindow", u"Title:", None))
         self.edit_hist_title.setText(QCoreApplication.translate("MainWindow", u"Current Distribution", None))

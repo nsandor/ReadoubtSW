@@ -112,6 +112,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for w in (self.ui.edit_heatmap_title, self.ui.edit_vmin, self.ui.edit_vmax):
             w.editingFinished.connect(self._update_plots)
         self.ui.combo_colormap.currentIndexChanged.connect(self._update_plots)
+        self.ui.combo_units.currentIndexChanged.connect(self._update_plots)
         self.ui.check_log_scale_heatmap.toggled.connect(self._update_plots)
         self.ui.check_show_values.toggled.connect(self._update_plots)
 
@@ -418,9 +419,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_plots()
 
     def _update_plots(self, reset: bool = False):
-        # Heatmap
+        units = self.ui.combo_units.currentText()
+        if units == "pA":
+            scale = 1e12
+        elif units == "nA":
+            scale = 1e9
+        elif units == "µA":
+            scale = 1e6
+        elif units == "mA":
+            scale = 1e3
         self.ax_heatmap.set_title(self.ui.edit_heatmap_title.text())
         display = np.full((10, 10), np.nan) if reset else self._apply_math(self.data)
+        display = display * scale
+        self.cbar.set_label(f"Current ({units})")
         self.im.set_data(display)
         valid = display[~np.isnan(display)]
 
@@ -469,7 +480,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             self.ax_heatmap.text(
                                 c,
                                 r,
-                                f"{val:.2e}",
+                                f"{val:.1f}",
                                 ha="center",
                                 va="center",
                                 color=color,
@@ -486,7 +497,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.ui.check_log_scale_hist.isChecked():
             self.ax_hist.set_yscale("log")
         self.ax_hist.grid(True, linestyle="--", alpha=0.6)
-        self.ax_hist.set_xlabel("Current (A)")
+        self.ax_hist.set_xlabel(f"Current ({units})")
         self.ax_hist.set_ylabel("Pixel Count")
         self.figure_hist.tight_layout(pad=2.5)
         self.canvas_hist.draw_idle()

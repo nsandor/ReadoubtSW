@@ -317,14 +317,14 @@
                    </property>
                   </widget>
                  </item>
-                 <item row="1" column="0">
+                 <item row="2" column="0">
                   <widget class="QLabel" name="label_cmap">
                    <property name="text">
                     <string>Colormap:</string>
                    </property>
                   </widget>
                  </item>
-                 <item row="1" column="1">
+                 <item row="2" column="1">
                   <widget class="QComboBox" name="combo_colormap">
                    <item>
                     <property name="text">
@@ -363,48 +363,48 @@
                    </item>
                   </widget>
                  </item>
-                 <item row="2" column="0">
+                 <item row="3" column="0">
                   <widget class="QLabel" name="label_log">
                    <property name="text">
                     <string/>
                    </property>
                   </widget>
                  </item>
-                 <item row="2" column="1">
+                 <item row="3" column="1">
                   <widget class="QCheckBox" name="check_log_scale_heatmap">
                    <property name="text">
                     <string>Logarithmic Color Scale</string>
                    </property>
                    <property name="checked">
-                    <bool>true</bool>
+                    <bool>false</bool>
                    </property>
                   </widget>
                  </item>
-                 <item row="3" column="0">
+                 <item row="4" column="0">
                   <widget class="QLabel" name="label_auto">
                    <property name="text">
                     <string/>
                    </property>
                   </widget>
                  </item>
-                 <item row="3" column="1">
+                 <item row="4" column="1">
                   <widget class="QCheckBox" name="check_auto_scale">
                    <property name="text">
                     <string>Auto-scale Color Limit</string>
                    </property>
                    <property name="checked">
-                    <bool>true</bool>
+                    <bool>false</bool>
                    </property>
                   </widget>
                  </item>
-                 <item row="4" column="0">
+                 <item row="5" column="0">
                   <widget class="QLabel" name="label_manual_limits">
                    <property name="text">
                     <string>Manual Limits:</string>
                    </property>
                   </widget>
                  </item>
-                 <item row="4" column="1">
+                 <item row="5" column="1">
                   <layout class="QHBoxLayout" name="minmax_layout">
                    <item>
                     <widget class="QLabel" name="label_vmin">
@@ -416,10 +416,10 @@
                    <item>
                     <widget class="QLineEdit" name="edit_vmin">
                      <property name="enabled">
-                      <bool>false</bool>
+                      <bool>true</bool>
                      </property>
                      <property name="text">
-                      <string>1e-10</string>
+                      <string>0.1</string>
                      </property>
                     </widget>
                    </item>
@@ -433,41 +433,78 @@
                    <item>
                     <widget class="QLineEdit" name="edit_vmax">
                      <property name="enabled">
-                      <bool>false</bool>
+                      <bool>true</bool>
                      </property>
                      <property name="text">
-                      <string>1e-7</string>
+                      <string>10</string>
                      </property>
                     </widget>
                    </item>
                   </layout>
                  </item>
-                 <item row="5" column="0">
+                 <item row="6" column="0">
                   <widget class="QLabel" name="label_showvals">
                    <property name="text">
                     <string/>
                    </property>
                   </widget>
                  </item>
-                 <item row="5" column="1">
+                 <item row="6" column="1">
                   <widget class="QCheckBox" name="check_show_values">
                    <property name="text">
                     <string>Show Pixel Values</string>
                    </property>
+                   <property name="checked">
+                    <bool>true</bool>
+                   </property>
                   </widget>
                  </item>
-                 <item row="6" column="0">
+                 <item row="7" column="0">
                   <widget class="QLabel" name="label_export_hm">
                    <property name="text">
                     <string/>
                    </property>
                   </widget>
                  </item>
-                 <item row="6" column="1">
+                 <item row="7" column="1">
                   <widget class="QPushButton" name="btn_export_heatmap">
                    <property name="text">
                     <string>Export Heatmap PNG…</string>
                    </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="label_units">
+                   <property name="text">
+                    <string>Units</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="QComboBox" name="combo_units">
+                   <property name="currentIndex">
+                    <number>1</number>
+                   </property>
+                   <item>
+                    <property name="text">
+                     <string>pA</string>
+                    </property>
+                   </item>
+                   <item>
+                    <property name="text">
+                     <string>nA</string>
+                    </property>
+                   </item>
+                   <item>
+                    <property name="text">
+                     <string>uA</string>
+                    </property>
+                   </item>
+                   <item>
+                    <property name="text">
+                     <string>mA</string>
+                    </property>
+                   </item>
                   </widget>
                  </item>
                 </layout>
