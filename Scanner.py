@@ -86,9 +86,10 @@ class ScanWorker(QtCore.QObject):
                 metadata = {"voltage": voltage} if voltage is not None else None
                 if bias_mode:
                     try:
-                        if hasattr(self._bias_sm, "enable_source"):
-                            self._bias_sm.enable_source()
+                        #self._bias_sm.apply_voltage()
                         self._bias_sm.source_voltage = float(voltage)
+                        self._bias_sm.enable_source()
+                        current = self._bias_sm.current
                     except Exception as e:
                         self.deviceError.emit(
                             f"Failed to set bias voltage {voltage:.6f} V: {e}"
@@ -117,6 +118,7 @@ class ScanWorker(QtCore.QObject):
                         if self._stop:
                             break
                         try:
+                            #current = self._bias_sm.current
                             val = float(self._sm.current)
                             if self._delay_s > 0:
                                 self._sleep_with_stop(self._delay_s, allow_pause=True)

@@ -20,10 +20,9 @@ from matplotlib.backends.backend_qt5agg import \
     FigureCanvasQTAgg as FigureCanvas  # works for PySide6 too
 from matplotlib.colors import LogNorm, Normalize
 from pymeasure.adapters import PrologixAdapter, VISAAdapter
-
+from pymeasure.instruments.keithley import Keithley2400
 from DevicePicker import DevicePicker
 from Drivers.Keithley2400_drv import (
-    Bias2400,
     DummyBias2400,
     DummyKeithley2400,
     ReadoutSafe2400,
@@ -773,7 +772,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 adapter = VISAAdapter(selection)
             elif PrologixAdapter:
                 adapter = PrologixAdapter(
-                    selection, gpib_addr or 6, gpib_read_timeout=3000
+                    selection, gpib_addr or 5, gpib_read_timeout=3000
                 )
                 adapter.connection.timeout = 20000
                 adapter.write("++mode 1")
@@ -783,17 +782,29 @@ class MainWindow(QtWidgets.QMainWindow):
                 raise RuntimeError(
                     "PyMeasure VISA/Prologix adapters not available."
                 )
-            self.bias_sm = Bias2400(adapter)
+            self.bias_sm = Keithley2400(adapter)
             ident = "Unknown"
+            self.bias_sm.reset()
+            self.bias_sm.apply_voltage()
+            self.bias_sm.source_voltage_range = 100
+
+            #self.bias_sm.compliance_current=0.1
+            self.bias_sm.source_voltage = 0
+            self.bias_sm.enable_source()
+            self.bias_sm.measure_current(nplc=1, current=0.105, auto_range=False)
+            self.bias_sm.current_range = 0.001
+            print(self.bias_sm.current)
+            self.bias_sm.disable_source()
+            #self.bias_sm.sample_continuously()
             try:
                 ident = self.bias_sm.ask("*IDN?")
             except Exception:
                 pass
-            try:
-                self.bias_sm.source_voltage = 0.0
-                self.bias_sm.disable_source()
-            except Exception as exc:
-                logging.warning(f"Failed to zero bias SMU on connect: {exc}")
+           # try:
+                #self.bias_sm.source_voltage = 0.0
+                #self.bias_sm.disable_source()
+            #except Exception as exc:
+            #    logging.warning(f"Failed to zero bias SMU on connect: {exc}")
             self.bias_sm_idn = f"Bias SMU: {ident.strip()}"
             QtWidgets.QMessageBox.information(
                 self,
@@ -857,7 +868,7 @@ class MainWindow(QtWidgets.QMainWindow):
 def main():
     app = QtWidgets.QApplication(sys.argv)
     # Optional splash:
-    splash = QtWidgets.QSplashScreen(QtGui.QPixmap("res/icons/Splash.png"))
+    splash = QtWidgets.QSplashScreen(QtGui.QPixmap("res/Splash.png"))
     splash.show()
     delay = 2000  # ms
     end = time.time() + delay / 1000.0

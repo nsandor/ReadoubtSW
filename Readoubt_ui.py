@@ -19,15 +19,17 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
     QFormLayout, QFrame, QGridLayout, QGroupBox,
     QHBoxLayout, QLabel, QLineEdit, QMainWindow,
-    QMenu, QMenuBar, QProgressBar, QPushButton,
-    QSizePolicy, QSpinBox, QSplitter, QStackedWidget,
-    QStatusBar, QTabWidget, QVBoxLayout, QWidget)
+    QProgressBar, QPushButton, QSizePolicy, QSpinBox,
+    QSplitter, QStackedWidget, QStatusBar, QTabWidget,
+    QVBoxLayout, QWidget)
+
+from kled import KLed
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
-        MainWindow.resize(1074, 936)
+        MainWindow.resize(1074, 1120)
         MainWindow.setMinimumSize(QSize(900, 700))
         self.actionConnect_SMU = QAction(MainWindow)
         self.actionConnect_SMU.setObjectName(u"actionConnect_SMU")
@@ -53,6 +55,61 @@ class Ui_MainWindow(object):
         self.frame.setFrameShadow(QFrame.Shadow.Raised)
         self.verticalLayout = QVBoxLayout(self.frame)
         self.verticalLayout.setObjectName(u"verticalLayout")
+        self.groupBox_2 = QGroupBox(self.frame)
+        self.groupBox_2.setObjectName(u"groupBox_2")
+        self.groupBox_2.setMinimumSize(QSize(338, 61))
+        self.gridLayout_2 = QGridLayout(self.groupBox_2)
+        self.gridLayout_2.setObjectName(u"gridLayout_2")
+        self.label = QLabel(self.groupBox_2)
+        self.label.setObjectName(u"label")
+
+        self.gridLayout_2.addWidget(self.label, 0, 1, 1, 1)
+
+        self.kled = KLed(self.groupBox_2)
+        self.kled.setObjectName(u"kled")
+        self.kled.setState(KLed.State.Off)
+        self.kled.setShape(KLed.Shape.Rectangular)
+        self.kled.setLook(KLed.Look.Sunken)
+
+        self.gridLayout_2.addWidget(self.kled, 0, 0, 1, 1)
+
+        self.kled_2 = KLed(self.groupBox_2)
+        self.kled_2.setObjectName(u"kled_2")
+        self.kled_2.setState(KLed.State.Off)
+        self.kled_2.setShape(KLed.Shape.Rectangular)
+        self.kled_2.setLook(KLed.Look.Sunken)
+
+        self.gridLayout_2.addWidget(self.kled_2, 0, 2, 1, 1)
+
+        self.pushButton = QPushButton(self.groupBox_2)
+        self.pushButton.setObjectName(u"pushButton")
+
+        self.gridLayout_2.addWidget(self.pushButton, 1, 0, 1, 7)
+
+        self.label_2 = QLabel(self.groupBox_2)
+        self.label_2.setObjectName(u"label_2")
+
+        self.gridLayout_2.addWidget(self.label_2, 0, 3, 1, 1)
+
+        self.kled_3 = KLed(self.groupBox_2)
+        self.kled_3.setObjectName(u"kled_3")
+        self.kled_3.setEnabled(False)
+        self.kled_3.setState(KLed.State.Off)
+        self.kled_3.setShape(KLed.Shape.Rectangular)
+        self.kled_3.setLook(KLed.Look.Sunken)
+        self.kled_3.setColor(QColor(0, 0, 0))
+
+        self.gridLayout_2.addWidget(self.kled_3, 0, 4, 1, 1)
+
+        self.label_3 = QLabel(self.groupBox_2)
+        self.label_3.setObjectName(u"label_3")
+        self.label_3.setEnabled(False)
+
+        self.gridLayout_2.addWidget(self.label_3, 0, 5, 1, 1)
+
+
+        self.verticalLayout.addWidget(self.groupBox_2)
+
         self.scan_settings_box = QGroupBox(self.frame)
         self.scan_settings_box.setObjectName(u"scan_settings_box")
         self.scan_settings_box.setMinimumSize(QSize(0, 0))
@@ -61,7 +118,7 @@ class Ui_MainWindow(object):
         self.Measurement_type_label = QLabel(self.scan_settings_box)
         self.Measurement_type_label.setObjectName(u"Measurement_type_label")
 
-        self.formLayout_2.setWidget(0, QFormLayout.ItemRole.LabelRole, self.Measurement_type_label)
+        self.formLayout_2.setWidget(1, QFormLayout.ItemRole.LabelRole, self.Measurement_type_label)
 
         self.Measurement_type_combobox = QComboBox(self.scan_settings_box)
         self.Measurement_type_combobox.addItem("")
@@ -70,22 +127,22 @@ class Ui_MainWindow(object):
         self.Measurement_type_combobox.addItem("")
         self.Measurement_type_combobox.setObjectName(u"Measurement_type_combobox")
 
-        self.formLayout_2.setWidget(0, QFormLayout.ItemRole.FieldRole, self.Measurement_type_combobox)
+        self.formLayout_2.setWidget(1, QFormLayout.ItemRole.FieldRole, self.Measurement_type_combobox)
 
         self.label_pixels = QLabel(self.scan_settings_box)
         self.label_pixels.setObjectName(u"label_pixels")
 
-        self.formLayout_2.setWidget(1, QFormLayout.ItemRole.LabelRole, self.label_pixels)
+        self.formLayout_2.setWidget(3, QFormLayout.ItemRole.LabelRole, self.label_pixels)
 
         self.edit_pixel_spec = QLineEdit(self.scan_settings_box)
         self.edit_pixel_spec.setObjectName(u"edit_pixel_spec")
 
-        self.formLayout_2.setWidget(1, QFormLayout.ItemRole.FieldRole, self.edit_pixel_spec)
+        self.formLayout_2.setWidget(3, QFormLayout.ItemRole.FieldRole, self.edit_pixel_spec)
 
         self.label_loops = QLabel(self.scan_settings_box)
         self.label_loops.setObjectName(u"label_loops")
 
-        self.formLayout_2.setWidget(2, QFormLayout.ItemRole.LabelRole, self.label_loops)
+        self.formLayout_2.setWidget(4, QFormLayout.ItemRole.LabelRole, self.label_loops)
 
         self.spin_loops = QSpinBox(self.scan_settings_box)
         self.spin_loops.setObjectName(u"spin_loops")
@@ -93,22 +150,22 @@ class Ui_MainWindow(object):
         self.spin_loops.setMaximum(100000)
         self.spin_loops.setValue(1)
 
-        self.formLayout_2.setWidget(2, QFormLayout.ItemRole.FieldRole, self.spin_loops)
+        self.formLayout_2.setWidget(4, QFormLayout.ItemRole.FieldRole, self.spin_loops)
 
         self.loop_delay_label = QLabel(self.scan_settings_box)
         self.loop_delay_label.setObjectName(u"loop_delay_label")
 
-        self.formLayout_2.setWidget(3, QFormLayout.ItemRole.LabelRole, self.loop_delay_label)
+        self.formLayout_2.setWidget(5, QFormLayout.ItemRole.LabelRole, self.loop_delay_label)
 
         self.loop_delay = QLineEdit(self.scan_settings_box)
         self.loop_delay.setObjectName(u"loop_delay")
 
-        self.formLayout_2.setWidget(3, QFormLayout.ItemRole.FieldRole, self.loop_delay)
+        self.formLayout_2.setWidget(5, QFormLayout.ItemRole.FieldRole, self.loop_delay)
 
         self.label_voltage_start = QLabel(self.scan_settings_box)
         self.label_voltage_start.setObjectName(u"label_voltage_start")
 
-        self.formLayout_2.setWidget(4, QFormLayout.ItemRole.LabelRole, self.label_voltage_start)
+        self.formLayout_2.setWidget(6, QFormLayout.ItemRole.LabelRole, self.label_voltage_start)
 
         self.spin_voltage_start = QDoubleSpinBox(self.scan_settings_box)
         self.spin_voltage_start.setObjectName(u"spin_voltage_start")
@@ -118,12 +175,12 @@ class Ui_MainWindow(object):
         self.spin_voltage_start.setSingleStep(0.100000000000000)
         self.spin_voltage_start.setValue(0.000000000000000)
 
-        self.formLayout_2.setWidget(4, QFormLayout.ItemRole.FieldRole, self.spin_voltage_start)
+        self.formLayout_2.setWidget(6, QFormLayout.ItemRole.FieldRole, self.spin_voltage_start)
 
         self.label_voltage_end = QLabel(self.scan_settings_box)
         self.label_voltage_end.setObjectName(u"label_voltage_end")
 
-        self.formLayout_2.setWidget(5, QFormLayout.ItemRole.LabelRole, self.label_voltage_end)
+        self.formLayout_2.setWidget(7, QFormLayout.ItemRole.LabelRole, self.label_voltage_end)
 
         self.spin_voltage_end = QDoubleSpinBox(self.scan_settings_box)
         self.spin_voltage_end.setObjectName(u"spin_voltage_end")
@@ -133,12 +190,12 @@ class Ui_MainWindow(object):
         self.spin_voltage_end.setSingleStep(0.100000000000000)
         self.spin_voltage_end.setValue(1.000000000000000)
 
-        self.formLayout_2.setWidget(5, QFormLayout.ItemRole.FieldRole, self.spin_voltage_end)
+        self.formLayout_2.setWidget(7, QFormLayout.ItemRole.FieldRole, self.spin_voltage_end)
 
         self.label_voltage_step = QLabel(self.scan_settings_box)
         self.label_voltage_step.setObjectName(u"label_voltage_step")
 
-        self.formLayout_2.setWidget(6, QFormLayout.ItemRole.LabelRole, self.label_voltage_step)
+        self.formLayout_2.setWidget(8, QFormLayout.ItemRole.LabelRole, self.label_voltage_step)
 
         self.spin_voltage_step = QDoubleSpinBox(self.scan_settings_box)
         self.spin_voltage_step.setObjectName(u"spin_voltage_step")
@@ -148,12 +205,12 @@ class Ui_MainWindow(object):
         self.spin_voltage_step.setSingleStep(0.100000000000000)
         self.spin_voltage_step.setValue(0.100000000000000)
 
-        self.formLayout_2.setWidget(6, QFormLayout.ItemRole.FieldRole, self.spin_voltage_step)
+        self.formLayout_2.setWidget(8, QFormLayout.ItemRole.FieldRole, self.spin_voltage_step)
 
         self.label_voltage_settle = QLabel(self.scan_settings_box)
         self.label_voltage_settle.setObjectName(u"label_voltage_settle")
 
-        self.formLayout_2.setWidget(7, QFormLayout.ItemRole.LabelRole, self.label_voltage_settle)
+        self.formLayout_2.setWidget(9, QFormLayout.ItemRole.LabelRole, self.label_voltage_settle)
 
         self.spin_voltage_settle = QDoubleSpinBox(self.scan_settings_box)
         self.spin_voltage_settle.setObjectName(u"spin_voltage_settle")
@@ -162,12 +219,12 @@ class Ui_MainWindow(object):
         self.spin_voltage_settle.setSingleStep(0.100000000000000)
         self.spin_voltage_settle.setValue(0.200000000000000)
 
-        self.formLayout_2.setWidget(7, QFormLayout.ItemRole.FieldRole, self.spin_voltage_settle)
+        self.formLayout_2.setWidget(9, QFormLayout.ItemRole.FieldRole, self.spin_voltage_settle)
 
         self.label_nplc = QLabel(self.scan_settings_box)
         self.label_nplc.setObjectName(u"label_nplc")
 
-        self.formLayout_2.setWidget(8, QFormLayout.ItemRole.LabelRole, self.label_nplc)
+        self.formLayout_2.setWidget(10, QFormLayout.ItemRole.LabelRole, self.label_nplc)
 
         self.spin_nplc = QDoubleSpinBox(self.scan_settings_box)
         self.spin_nplc.setObjectName(u"spin_nplc")
@@ -176,22 +233,22 @@ class Ui_MainWindow(object):
         self.spin_nplc.setMaximum(25.000000000000000)
         self.spin_nplc.setValue(10.000000000000000)
 
-        self.formLayout_2.setWidget(8, QFormLayout.ItemRole.FieldRole, self.spin_nplc)
+        self.formLayout_2.setWidget(10, QFormLayout.ItemRole.FieldRole, self.spin_nplc)
 
         self.integration_time_label = QLabel(self.scan_settings_box)
         self.integration_time_label.setObjectName(u"integration_time_label")
 
-        self.formLayout_2.setWidget(9, QFormLayout.ItemRole.LabelRole, self.integration_time_label)
+        self.formLayout_2.setWidget(11, QFormLayout.ItemRole.LabelRole, self.integration_time_label)
 
         self.integration_time = QLabel(self.scan_settings_box)
         self.integration_time.setObjectName(u"integration_time")
 
-        self.formLayout_2.setWidget(9, QFormLayout.ItemRole.FieldRole, self.integration_time)
+        self.formLayout_2.setWidget(11, QFormLayout.ItemRole.FieldRole, self.integration_time)
 
         self.label_nsamp = QLabel(self.scan_settings_box)
         self.label_nsamp.setObjectName(u"label_nsamp")
 
-        self.formLayout_2.setWidget(10, QFormLayout.ItemRole.LabelRole, self.label_nsamp)
+        self.formLayout_2.setWidget(12, QFormLayout.ItemRole.LabelRole, self.label_nsamp)
 
         self.spin_nsamp = QSpinBox(self.scan_settings_box)
         self.spin_nsamp.setObjectName(u"spin_nsamp")
@@ -199,24 +256,35 @@ class Ui_MainWindow(object):
         self.spin_nsamp.setMaximum(100)
         self.spin_nsamp.setValue(1)
 
-        self.formLayout_2.setWidget(10, QFormLayout.ItemRole.FieldRole, self.spin_nsamp)
+        self.formLayout_2.setWidget(12, QFormLayout.ItemRole.FieldRole, self.spin_nsamp)
 
         self.check_auto_current_range = QCheckBox(self.scan_settings_box)
         self.check_auto_current_range.setObjectName(u"check_auto_current_range")
         self.check_auto_current_range.setChecked(True)
 
-        self.formLayout_2.setWidget(11, QFormLayout.ItemRole.LabelRole, self.check_auto_current_range)
+        self.formLayout_2.setWidget(13, QFormLayout.ItemRole.LabelRole, self.check_auto_current_range)
 
         self.label_manual_rng = QLabel(self.scan_settings_box)
         self.label_manual_rng.setObjectName(u"label_manual_rng")
 
-        self.formLayout_2.setWidget(12, QFormLayout.ItemRole.LabelRole, self.label_manual_rng)
+        self.formLayout_2.setWidget(14, QFormLayout.ItemRole.LabelRole, self.label_manual_rng)
 
         self.edit_current_range = QLineEdit(self.scan_settings_box)
         self.edit_current_range.setObjectName(u"edit_current_range")
         self.edit_current_range.setEnabled(False)
 
-        self.formLayout_2.setWidget(12, QFormLayout.ItemRole.FieldRole, self.edit_current_range)
+        self.formLayout_2.setWidget(14, QFormLayout.ItemRole.FieldRole, self.edit_current_range)
+
+        self.stackedWidget = QStackedWidget(self.scan_settings_box)
+        self.stackedWidget.setObjectName(u"stackedWidget")
+        self.page = QWidget()
+        self.page.setObjectName(u"page")
+        self.stackedWidget.addWidget(self.page)
+        self.page_2 = QWidget()
+        self.page_2.setObjectName(u"page_2")
+        self.stackedWidget.addWidget(self.page_2)
+
+        self.formLayout_2.setWidget(15, QFormLayout.ItemRole.SpanningRole, self.stackedWidget)
 
 
         self.verticalLayout.addWidget(self.scan_settings_box)
@@ -581,20 +649,10 @@ class Ui_MainWindow(object):
         self.statusbar = QStatusBar(MainWindow)
         self.statusbar.setObjectName(u"statusbar")
         MainWindow.setStatusBar(self.statusbar)
-        self.menuBar = QMenuBar(MainWindow)
-        self.menuBar.setObjectName(u"menuBar")
-        self.menuBar.setGeometry(QRect(0, 0, 1074, 22))
-        self.menuHardware = QMenu(self.menuBar)
-        self.menuHardware.setObjectName(u"menuHardware")
-        MainWindow.setMenuBar(self.menuBar)
-
-        self.menuBar.addAction(self.menuHardware.menuAction())
-        self.menuHardware.addAction(self.actionConnect_SMU)
-        self.menuHardware.addAction(self.actionConnect_Bias_SMU)
-        self.menuHardware.addAction(self.actionConnect_SwitchBoard)
 
         self.retranslateUi(MainWindow)
 
+        self.stackedWidget.setCurrentIndex(1)
         self.plot_settings_stack.setCurrentIndex(0)
         self.combo_units.setCurrentIndex(1)
         self.plot_stack.setCurrentIndex(0)
@@ -608,6 +666,11 @@ class Ui_MainWindow(object):
         self.actionConnect_SMU.setText(QCoreApplication.translate("MainWindow", u"Connect Read SMU", None))
         self.actionConnect_Bias_SMU.setText(QCoreApplication.translate("MainWindow", u"Connect Bias SMU", None))
         self.actionConnect_SwitchBoard.setText(QCoreApplication.translate("MainWindow", u"Connect SwitchBoard", None))
+        self.groupBox_2.setTitle(QCoreApplication.translate("MainWindow", u"Hardware Status", None))
+        self.label.setText(QCoreApplication.translate("MainWindow", u"Readout", None))
+        self.pushButton.setText(QCoreApplication.translate("MainWindow", u"Configure Hardware", None))
+        self.label_2.setText(QCoreApplication.translate("MainWindow", u"Switch", None))
+        self.label_3.setText(QCoreApplication.translate("MainWindow", u"Bias", None))
         self.scan_settings_box.setTitle(QCoreApplication.translate("MainWindow", u"Scan Settings", None))
         self.Measurement_type_label.setText(QCoreApplication.translate("MainWindow", u"Measurement Type", None))
         self.Measurement_type_combobox.setItemText(0, QCoreApplication.translate("MainWindow", u"Current - Time", None))
@@ -695,5 +758,5 @@ class Ui_MainWindow(object):
         self.ScanTimers.setText(QCoreApplication.translate("MainWindow", u"Loop #:                    Time Elapsed:                   Predicted remaining time:", None))
         self.btn_run_abort.setText(QCoreApplication.translate("MainWindow", u"Run Scan", None))
         self.btn_pause_resume.setText(QCoreApplication.translate("MainWindow", u"Pause", None))
-        self.menuHardware.setTitle(QCoreApplication.translate("MainWindow", u"Hardware", None))
     # retranslateUi
+
