@@ -28,6 +28,7 @@ class ScanWorker(QtCore.QObject):
         bias_sm=None,
         voltage_steps: Optional[Iterable[float]] = None,
         voltage_settle_s: float = 0.0,
+        constant_bias_voltage: Optional[float] = None,
     ):
         super().__init__()
         self._sm = sm
@@ -45,6 +46,11 @@ class ScanWorker(QtCore.QObject):
         self._bias_sm = bias_sm
         self._voltage_points = list(voltage_steps or [])
         self._voltage_settle_s = max(0.0, float(voltage_settle_s))
+        self._constant_bias_voltage = (
+            float(constant_bias_voltage)
+            if constant_bias_voltage is not None
+            else None
+        )
         if self._voltage_points:
             self._loops = len(self._voltage_points)
 
@@ -67,29 +73,51 @@ class ScanWorker(QtCore.QObject):
             self.finished.emit()
             return
 
-        bias_mode = bool(self._voltage_points)
+        sweep_mode = bool(self._voltage_points)
+        constant_bias_mode = self._constant_bias_voltage is not None
+        bias_mode = sweep_mode or constant_bias_mode
         if bias_mode and not self._bias_sm:
-            self.deviceError.emit("Bias SMU not configured for sweep")
+            self.deviceError.emit("Bias SMU not configured for bias application")
             self.finished.emit()
             return
 
-        loop_plan = (
-            [(idx + 1, v) for idx, v in enumerate(self._voltage_points)]
-            if bias_mode
-            else [(idx, None) for idx in range(1, self._loops + 1)]
-        )
+        if sweep_mode:
+            loop_plan = [
+                (idx + 1, float(v)) for idx, v in enumerate(self._voltage_points)
+            ]
+        elif constant_bias_mode:
+            loop_plan = [
+                (idx, float(self._constant_bias_voltage))
+                for idx in range(1, self._loops + 1)
+            ]
+        else:
+            loop_plan = [(idx, None) for idx in range(1, self._loops + 1)]
 
         try:
+            if constant_bias_mode and not sweep_mode:
+                try:
+                    self._bias_sm.source_voltage = float(
+                        self._constant_bias_voltage
+                    )
+                    self._bias_sm.enable_source()
+                except Exception as exc:
+                    self.deviceError.emit(
+                        f"Failed to set bias voltage {self._constant_bias_voltage:.6f} V: {exc}"
+                    )
+                    raise
+                if self._voltage_settle_s > 0:
+                    self._sleep_with_stop(self._voltage_settle_s, allow_pause=True)
+                    if self._stop:
+                        raise StopIteration
             for loop_idx, voltage in loop_plan:
                 if self._stop:
                     break
                 metadata = {"voltage": voltage} if voltage is not None else None
-                if bias_mode:
+                if sweep_mode:
                     try:
-                        #self._bias_sm.apply_voltage()
                         self._bias_sm.source_voltage = float(voltage)
                         self._bias_sm.enable_source()
-                        current = self._bias_sm.current
+                        _ = self._bias_sm.current
                     except Exception as e:
                         self.deviceError.emit(
                             f"Failed to set bias voltage {voltage:.6f} V: {e}"
@@ -101,6 +129,14 @@ class ScanWorker(QtCore.QObject):
                         )
                         if self._stop:
                             break
+                elif constant_bias_mode:
+                    try:
+                        self._bias_sm.enable_source()
+                    except Exception as e:
+                        self.deviceError.emit(
+                            f"Failed to maintain bias voltage {voltage:.6f} V: {e}"
+                        )
+                        raise
                 self.loopStarted.emit(loop_idx, metadata)
                 for p in self._pixels:
                     while self._paused and not self._stop:
@@ -138,6 +174,8 @@ class ScanWorker(QtCore.QObject):
                     and self._inter_loop_delay_s > 0
                 ):
                     self._sleep_with_stop(self._inter_loop_delay_s, allow_pause=True)
+        except StopIteration:
+            pass
         except Exception:
             pass
         finally:

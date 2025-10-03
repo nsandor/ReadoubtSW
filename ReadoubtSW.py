@@ -58,8 +58,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._loop_label: str = "Loop"
         self._current_voltage: Optional[float] = None
         self._voltage_sequence: List[float] = []
+        self._constant_bias_voltage: Optional[float] = None
         self._voltage_control_widgets: List[QtWidgets.QWidget] = []
         self._loop_control_widgets: List[QtWidgets.QWidget] = []
+        self._time_bias_widgets: List[QtWidgets.QWidget] = []
 
         # ---- instruments (dummy by default) ----
         self.sm = DummyKeithley2400()
@@ -109,6 +111,66 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ui.loop_delay_label,
             self.ui.loop_delay,
         ]
+
+        # ---- time-mode bias controls ----
+        self.ui.check_bias_enable = QtWidgets.QCheckBox(
+            "Apply bias during time measurement"
+        )
+        self.ui.check_bias_enable.setObjectName("check_bias_enable")
+        bias_insert_row = 4
+        self.ui.formLayout_2.insertRow(bias_insert_row, self.ui.check_bias_enable)
+
+        self.ui.label_bias_voltage = QtWidgets.QLabel("Bias level:")
+        self.ui.label_bias_voltage.setObjectName("label_bias_voltage")
+        self.ui.spin_bias_voltage = QtWidgets.QDoubleSpinBox()
+        self.ui.spin_bias_voltage.setObjectName("spin_bias_voltage")
+        self.ui.spin_bias_voltage.setDecimals(3)
+        self.ui.spin_bias_voltage.setMinimum(-200.0)
+        self.ui.spin_bias_voltage.setMaximum(200.0)
+        self.ui.spin_bias_voltage.setSingleStep(0.1)
+        self.ui.spin_bias_voltage.setValue(0.0)
+
+        self.ui.combo_bias_units = QtWidgets.QComboBox()
+        self.ui.combo_bias_units.setObjectName("combo_bias_units")
+        self.ui.combo_bias_units.addItems(["V", "V/cm"])
+
+        bias_value_widget = QtWidgets.QWidget()
+        self._bias_value_widget = bias_value_widget
+        bias_value_layout = QtWidgets.QHBoxLayout(bias_value_widget)
+        bias_value_layout.setContentsMargins(0, 0, 0, 0)
+        bias_value_layout.setSpacing(6)
+        bias_value_layout.addWidget(self.ui.spin_bias_voltage)
+        bias_value_layout.addWidget(self.ui.combo_bias_units)
+
+        self.ui.formLayout_2.insertRow(
+            bias_insert_row + 1,
+            self.ui.label_bias_voltage,
+            bias_value_widget,
+        )
+
+        self.ui.label_bias_thickness = QtWidgets.QLabel("Sample thickness (cm):")
+        self.ui.label_bias_thickness.setObjectName("label_bias_thickness")
+        self.ui.spin_bias_thickness = QtWidgets.QDoubleSpinBox()
+        self.ui.spin_bias_thickness.setObjectName("spin_bias_thickness")
+        self.ui.spin_bias_thickness.setDecimals(3)
+        self.ui.spin_bias_thickness.setMinimum(0.001)
+        self.ui.spin_bias_thickness.setMaximum(1000.0)
+        self.ui.spin_bias_thickness.setSingleStep(0.01)
+        self.ui.spin_bias_thickness.setValue(1.0)
+
+        self.ui.formLayout_2.insertRow(
+            bias_insert_row + 2,
+            self.ui.label_bias_thickness,
+            self.ui.spin_bias_thickness,
+        )
+
+        self._time_bias_widgets = [
+            self.ui.check_bias_enable,
+            self.ui.label_bias_voltage,
+            self._bias_value_widget,
+            self.ui.label_bias_thickness,
+            self.ui.spin_bias_thickness,
+        ]
         self._voltage_control_widgets = [
             self.ui.label_voltage_start,
             self.ui.spin_voltage_start,
@@ -149,6 +211,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.Measurement_type_combobox.currentIndexChanged.connect(
             self._on_measurement_type_changed
         )
+        self.ui.check_bias_enable.toggled.connect(self._update_bias_controls_state)
+        self.ui.combo_bias_units.currentIndexChanged.connect(
+            self._update_bias_controls_state
+        )
 
         # Menu actions
         self.ui.actionConnect_SMU.triggered.connect(self._connect_read_smu)
@@ -161,6 +227,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_plot_controls_state()
         self._update_plots(reset=True)
         self._update_statusbar(text="Ready")
+        self._update_bias_controls_state()
         self._on_measurement_type_changed(
             self.ui.Measurement_type_combobox.currentIndex()
         )
@@ -168,6 +235,40 @@ class MainWindow(QtWidgets.QMainWindow):
     # ---------------------- convenience ----------------------
     def _update_statusbar(self, text: str):
         self.statusBar().showMessage(text, 4000)
+
+    def _bias_smu_connected(self) -> bool:
+        return not isinstance(self.bias_sm, DummyBias2400)
+
+    def _update_bias_controls_state(self):
+        show_bias = self.measurement_mode != "voltage"
+        for widget in self._time_bias_widgets:
+            widget.setVisible(show_bias)
+
+        bias_available = self._bias_smu_connected()
+        checkbox_enabled = bias_available and show_bias
+        if not bias_available and self.ui.check_bias_enable.isChecked():
+            self.ui.check_bias_enable.blockSignals(True)
+            self.ui.check_bias_enable.setChecked(False)
+            self.ui.check_bias_enable.blockSignals(False)
+        self.ui.check_bias_enable.setEnabled(checkbox_enabled)
+
+        base_enabled = bias_available and show_bias
+        apply_bias = base_enabled and self.ui.check_bias_enable.isChecked()
+
+        self.ui.label_bias_voltage.setEnabled(base_enabled)
+        self._bias_value_widget.setEnabled(base_enabled)
+        self.ui.spin_bias_voltage.setEnabled(base_enabled)
+        self.ui.combo_bias_units.setEnabled(base_enabled)
+
+        show_thickness = (
+            show_bias
+            and self.ui.combo_bias_units.currentText().strip().lower().startswith("v/")
+        )
+        thickness_enabled = base_enabled and show_thickness
+        self.ui.label_bias_thickness.setVisible(show_thickness)
+        self.ui.spin_bias_thickness.setVisible(show_thickness)
+        self.ui.label_bias_thickness.setEnabled(thickness_enabled)
+        self.ui.spin_bias_thickness.setEnabled(thickness_enabled)
 
     def _on_measurement_type_changed(self, index: int):
         text = (
@@ -180,6 +281,7 @@ class MainWindow(QtWidgets.QMainWindow):
             w.setVisible(not show_voltage)
         for w in self._voltage_control_widgets:
             w.setVisible(show_voltage)
+        self._update_bias_controls_state()
         if show_voltage:
             self._current_voltage = None
             if self.ui.spin_loops.value() != 1:
@@ -228,6 +330,24 @@ class MainWindow(QtWidgets.QMainWindow):
         settle = float(self.ui.spin_voltage_settle.value())
         voltages = self._generate_voltage_steps(start, end, step)
         return voltages, max(0.0, settle)
+
+    def _collect_time_bias_voltage(self) -> Optional[float]:
+        if not getattr(self.ui, "check_bias_enable", None):
+            return None
+        if not self.ui.check_bias_enable.isChecked():
+            return None
+        if not self._bias_smu_connected():
+            raise ValueError(
+                "Connect a bias sourcemeter before enabling a bias voltage."
+            )
+        value = float(self.ui.spin_bias_voltage.value())
+        units = (self.ui.combo_bias_units.currentText() or "V").strip().lower()
+        if "cm" in units:
+            thickness = float(self.ui.spin_bias_thickness.value())
+            if thickness <= 0:
+                raise ValueError("Sample thickness must be positive (cm).")
+            value *= thickness
+        return round(value, 6)
 
     # ---------------------- selection/parse ----------------------
     @staticmethod
@@ -320,9 +440,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.measurement_mode = "voltage" if voltage_mode else "time"
         self._loop_label = "Voltage Step" if voltage_mode else "Loop"
         self._current_voltage = None
+        self._constant_bias_voltage = None
 
         voltage_steps = None
         settle_time = 0.0
+        constant_bias_voltage: Optional[float] = None
         if voltage_mode:
             if isinstance(self.bias_sm, DummyBias2400):
                 QtWidgets.QMessageBox.critical(
@@ -340,12 +462,18 @@ class MainWindow(QtWidgets.QMainWindow):
             inter_loop_delay = 0.0
             self._voltage_sequence = voltage_steps
         else:
+            try:
+                constant_bias_voltage = self._collect_time_bias_voltage()
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Bias Voltage", f"{e}")
+                return
             loops = self.ui.spin_loops.value()
             try:
                 inter_loop_delay = float(self.ui.loop_delay.text())
             except Exception:
                 inter_loop_delay = 0.0
             self._voltage_sequence = []
+            self._constant_bias_voltage = constant_bias_voltage
 
         if loops <= 0:
             QtWidgets.QMessageBox.critical(
@@ -354,6 +482,12 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         # worker
+        bias_device = (
+            self.bias_sm
+            if voltage_mode or constant_bias_voltage is not None
+            else None
+        )
+
         self._worker = ScanWorker(
             self.sm,
             self.switch,
@@ -365,9 +499,10 @@ class MainWindow(QtWidgets.QMainWindow):
             current_range=cur_rng,
             inter_sample_delay_s=0,
             inter_loop_delay_s=inter_loop_delay,
-            bias_sm=self.bias_sm if voltage_mode else None,
+            bias_sm=bias_device,
             voltage_steps=voltage_steps if voltage_mode else None,
             voltage_settle_s=settle_time if voltage_mode else 0.0,
+            constant_bias_voltage=constant_bias_voltage if not voltage_mode else None,
         )
         self._thread = QtCore.QThread()
         self._worker.moveToThread(self._thread)
@@ -417,10 +552,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_loop_tag = uuid.uuid4().hex[:6].upper()
         self._update_plots(reset=True)
         if self._current_voltage is not None:
-            total = len(self._voltage_sequence) or "?"
-            self._update_statusbar(
-                f"Voltage step {loop_idx}/{total}: {self._voltage_display(self._current_voltage)}"
-            )
+            display = self._voltage_display(self._current_voltage)
+            if self.measurement_mode == "voltage":
+                total = len(self._voltage_sequence) or "?"
+                msg = f"Voltage step {loop_idx}/{total}: {display}"
+            else:
+                msg = f"Loop {loop_idx} started – bias {display}"
+            self._update_statusbar(msg)
         else:
             self._update_statusbar(text=f"Loop {loop_idx} started…")
         self._current_loop = loop_idx
@@ -514,6 +652,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._current_voltage = None
         self._voltage_sequence = []
+        self._constant_bias_voltage = None
         self._update_statusbar(text="Scan finished.")
 
     def _handle_device_error(self, message: str):
@@ -818,6 +957,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self, "Bias SMU", f"Failed to connect: {e}"
             )
         self._update_statusbar(self.bias_sm_idn)
+        self._update_bias_controls_state()
 
     def _connect_switch(self):
         dlg = DevicePicker(self, title="Connect Switch Board", show_gpib=False)
