@@ -30,6 +30,7 @@ from Drivers.Keithley2400_drv import (
 from Drivers.Switchboard_drv import DummySwitchBoard, SwitchBoard
 from Readoubt_ui import Ui_MainWindow
 from Scanner import ScanWorker
+from Analysis.analysis_window import AnalysisWindow
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -39,6 +40,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
         self.setWindowTitle("Readoubt")
+        self.analysis_window: Optional[AnalysisWindow] = None
+        self.menu_analysis = self.ui.menuBar.addMenu("Analysis")
+        self.action_open_analysis = QtGui.QAction("Open Analysis Window", self)
+        self.menu_analysis.addAction(self.action_open_analysis)
+        self.action_open_analysis.triggered.connect(self._open_analysis_window)
 
         # ---- paths/state ----
         self.output_folder: Path = Path.home()
@@ -654,6 +660,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._voltage_sequence = []
         self._constant_bias_voltage = None
         self._update_statusbar(text="Scan finished.")
+        if self.analysis_window and self._run_folder:
+            try:
+                self.analysis_window.set_run_folder(self._run_folder, auto_load=True)
+            except Exception as exc:
+                logging.warning(f"Analysis window update failed: {exc}")
 
     def _handle_device_error(self, message: str):
         logging.error(f"Device error: {message}")
@@ -989,6 +1000,28 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Switch", f"Failed: {e}")
         self._update_statusbar(self.switch_idn)
         self._update_plots(reset=False)
+
+    def _open_analysis_window(self):
+        if self.analysis_window is None:
+            try:
+                self.analysis_window = AnalysisWindow(self, pixel_parser=self._parse_pixel_spec)
+            except Exception as exc:
+                logging.error(f"Failed to create analysis window: {exc}")
+                QtWidgets.QMessageBox.critical(
+                    self, "Analysis", f"Failed to open analysis window:\n{exc}"
+                )
+                self.analysis_window = None
+                return
+        try:
+            if self._run_folder and self._run_folder.exists():
+                self.analysis_window.set_run_folder(self._run_folder)
+            elif self.output_folder and Path(self.output_folder).is_dir():
+                self.analysis_window.set_run_folder(Path(self.output_folder))
+        except Exception as exc:
+            logging.warning(f"Unable to update analysis window folder: {exc}")
+        self.analysis_window.show()
+        self.analysis_window.raise_()
+        self.analysis_window.activateWindow()
 
     # ---------------------- misc ----------------------
     def _update_integration_time_label(self):
