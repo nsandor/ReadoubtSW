@@ -33,11 +33,9 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <EEPROM.h>
+#include "SplashScreens.h"
 
-/* ─── Firmware identifiers ─────────────────────────────────────── */
-constexpr char BOARD_ID = 'C';  // compile-time letter A-E
-constexpr uint8_t FW_VER_MAJOR = 2;
-constexpr uint8_t FW_VER_MINOR = 1;
 
 /* ─── Pin map ───────────────────────────────────────────────────── */
 constexpr uint8_t PIN_DATA = 7;
@@ -45,18 +43,12 @@ constexpr uint8_t PIN_CLOCK = 5;
 constexpr uint8_t PIN_OE = 6;
 constexpr uint8_t PIN_CLEAR = 4;
 constexpr uint8_t PIN_LED_ENABLE = 8;
-constexpr uint8_t PIN_SWINT_HOLD = 9;
-constexpr uint8_t PIN_SWINT_RESET = 10;
 constexpr uint8_t PIN_ADCDAT = 11;
 constexpr uint8_t PIN_SPI_CS = A5;  // PSU CS
-
 constexpr uint8_t PIN_OUTPUT_ROUTER = A0;  // D18
 constexpr uint8_t PIN_AMPLIFIER_SEL = A1;  // D19
 constexpr uint8_t PIN_TIA_SELECT = A2;     // D20
 constexpr uint8_t PIN_SWINV_SELECT = A3;   // D20
-
-constexpr uint8_t PIN_ADC = A7;
-
 /* ─── General constants ────────────────────────────────────────── */
 constexpr uint32_t SERIAL_BAUD = 9600;
 constexpr uint16_t FRAME_LEN = 104;
@@ -66,83 +58,19 @@ constexpr uint8_t SWITCH_MIN = 1;
 constexpr uint8_t SWITCH_MAX = 101;
 
 /* ─── External ADC (ADS112C04) constants ─────────────────────────
- * Address assumes A1=A0 strapped low → 0b1000000 = 0x40.
- *
- * Command bytes:
- *   RESET      0x06
- *   START/SYNC 0x08
- *   POWERDOWN  0x02
- *   RDATA      0x10
- *   RREG       0x20 | (reg<<2)
- *   WREG       0x40 | (reg<<2)
- *
- * We configure:
- *   - Differential AIN0(+) - AIN1(-)
- *   - Gain = 1
- *   - PGA bypassed
- *   - Single-shot mode, 20 SPS
- *   - Internal 2.048 V ref
- *
- * Full-scale is ±2.048 V at gain=1.
- * LSB ~= 4.096 V / 65536 counts.
  */
 constexpr uint8_t ADS112C04_ADDR = 0x40;
 constexpr uint8_t ADS112C04_CMD_RESET = 0x06;
 constexpr uint8_t ADS112C04_CMD_STARTSYNC = 0x08;
 constexpr uint8_t ADS112C04_CMD_POWERDOWN = 0x02;
 constexpr uint8_t ADS112C04_CMD_RDATA = 0x10;
-
 // 4.096 V span = (+2.048 to -2.048), bipolar about 0.
 constexpr float ADS112C04_LSB_VOLTS = 0.000142;
 
 /* ─── Global state ─────────────────────────────────────────────── */
 bool verbose = true;
 
-/* ─── Splash bitmap (first 100 bits) ───────────────────────────── */
-const uint8_t splash[10][10] PROGMEM = {
-  { 0, 0, 1, 0, 0, 0, 0, 1, 0, 0 },
-  { 0, 0, 1, 1, 0, 0, 1, 1, 0, 0 },
-  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
-  { 0, 1, 1, 1, 0, 0, 1, 1, 1, 0 },
-  { 0, 0, 1, 0, 1, 1, 0, 1, 0, 0 },
-  { 0, 0, 1, 0, 1, 1, 0, 1, 0, 0 },
-  { 0, 1, 1, 1, 0, 0, 1, 1, 1, 0 },
-  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
-  { 0, 0, 1, 1, 0, 0, 1, 1, 0, 0 },
-  { 0, 0, 1, 0, 0, 0, 0, 1, 0, 0 }
-};
-
-/* 5×7 glyphs for digits 0-9 and letters A-E (MSB-left) ----------- */
-const uint8_t FONT_DIGIT[10][7] PROGMEM = {
-  { 0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E },  //0
-  { 0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E },  //1
-  { 0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F },  //2
-  { 0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E },  //3
-  { 0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02 },  //4
-  { 0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E },  //5
-  { 0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E },  //6
-  { 0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08 },  //7
-  { 0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E },  //8
-  { 0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C }   //9
-};
-
-const uint8_t FONT_LET[5][7] PROGMEM = {  // A-E
-  /*A*/ { 0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 },
-  /*B*/ { 0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E },
-  /*C*/ { 0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E },
-  /*D*/ { 0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E },
-  /*E*/ { 0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F }
-};
-
 /* ─── Low-level helpers (shift reg / LED matrix) ───────────────── */
-inline void pulseClock() {
-  digitalWrite(PIN_CLOCK, HIGH);
-  digitalWrite(PIN_CLOCK, LOW);
-}
-inline void shiftBit(bool v) {
-  digitalWrite(PIN_DATA, v);
-  pulseClock();
-}
 
 void clearRegister() {
   digitalWrite(PIN_OE, HIGH);
@@ -153,7 +81,12 @@ void clearRegister() {
 
 void shiftFrameMSBFirst(const uint8_t *buf, uint16_t n) {
   digitalWrite(PIN_OE, HIGH);
-  for (int16_t i = n - 1; i >= 0; --i) shiftBit(buf[i]);
+  for (int16_t i = n - 1; i >= 0; --i){
+    digitalWrite(PIN_DATA, buf[i]);
+    // Clock pulse
+    digitalWrite(PIN_CLOCK, HIGH);
+    digitalWrite(PIN_CLOCK, LOW);
+  }
   digitalWrite(PIN_OE, LOW);
 }
 
@@ -198,42 +131,24 @@ String frameToString(const uint8_t *f) {
   return s;
 }
 
-/* ─── Spiral splash ------------------------------------------------ */
-void makeSpiral(uint8_t ord[100]) {
-  bool used[10][10] = {};
-  const int8_t dr[4] = { 0, 1, 0, -1 }, dc[4] = { 1, 0, -1, 0 };
-  int r = 4, c = 4, d = 0, step = 1;
-  uint8_t n = 0;
-  while (n < 100) {
-    for (int k = 0; k < step && n < 100; ++k) {
-      if (r >= 0 && r < 10 && c >= 0 && c < 10 && !used[r][c]) {
-        ord[n++] = r * 10 + c;
-        used[r][c] = true;
-      }
-      r += dr[d];
-      c += dc[d];
-    }
-    d = (d + 1) & 3;
-    if (d == 0 || d == 2) ++step;
-  }
-}
-
 void spiralSplash() {
   static uint8_t path[100];
-  static bool ready = false;
-  if (!ready) {
-    makeSpiral(path);
-    ready = true;
-  }
+  makeSpiral(path);
 
   uint8_t frame[FRAME_LEN] = { 0 };
-  delay(1000);
+  long randomval = random(100);
 
   for (uint8_t i = 0; i < 100; ++i) {
     uint8_t p = path[i];
     if (i) {
       uint8_t q = path[i - 1];
-      frame[q] = pgm_read_byte(&splash[q / 10][q % 10]);
+      if (randomval>90){
+        frame[q] = pgm_read_byte(&splashl[q / 10][q % 10]);
+      }
+      else{
+        frame[q] = pgm_read_byte(&splash[q / 10][q % 10]);
+      }
+      
     }
     frame[p] = 1;
     shiftFrameMSBFirst(frame, FRAME_LEN);
@@ -241,34 +156,14 @@ void spiralSplash() {
   }
 
   uint8_t last = path[99];
+  if (randomval>90){
+  frame[last] = pgm_read_byte(&splashl[last / 10][last % 10]);
+  }
+  else{
   frame[last] = pgm_read_byte(&splash[last / 10][last % 10]);
+  }
   shiftFrameMSBFirst(frame, FRAME_LEN);
   delay(500);
-}
-
-/* ─── Info splash ("<Letter><Digit>") ----------------------------- */
-void buildInfoFrame(uint8_t f[FRAME_LEN]) {
-  memset(f, 0, FRAME_LEN);
-
-  /* pick letter glyph (A-E) from PROGMEM */
-  const uint8_t *glyphL = nullptr;
-  if (BOARD_ID >= 'A' && BOARD_ID <= 'E')
-    glyphL = FONT_LET[BOARD_ID - 'A'];
-
-  /* copy digit glyph (0-9) from PROGMEM into RAM */
-  uint8_t glyphR[7];
-  memcpy_P(glyphR, FONT_DIGIT[FW_VER_MAJOR % 10], 7);
-
-  /* draw 5×7 glyphs into rows 1-7 of the 10×10 frame */
-  for (uint8_t row = 0; row < 7; ++row) {
-    uint8_t L = glyphL ? pgm_read_byte(glyphL + row) : 0;  // flash → RAM
-    uint8_t R = glyphR[row];                               // already in RAM
-
-    for (uint8_t col = 0; col < 5; ++col) {
-      f[(row + 1) * 10 + col] = (L >> (4 - col)) & 1;      // letter
-      f[(row + 1) * 10 + 5 + col] = (R >> (4 - col)) & 1;  // digit
-    }
-  }
 }
 
 void showInfoScreen() {
@@ -286,16 +181,7 @@ void spiSend(uint8_t b1) {
   digitalWrite(PIN_SPI_CS, HIGH);
   Serial.print(F("SPI sent: 0x"));
   Serial.print(b1, HEX);
-}
-
-/* ─── On-chip ADC helper (A7, unipolar) --------------------------- */
-void printADC_local() {
-  uint16_t raw = analogRead(PIN_ADC);
-  float v = raw * 2.56f / 1023.0f;
-  Serial.print(F("ADC raw="));
-  Serial.print(raw);
-  Serial.print(F(" V="));
-  Serial.println(v, 3);
+  Serial.println();
 }
 
 /* ─── ADS112C04 low-level I2C helpers ----------------------------- */
@@ -325,32 +211,10 @@ uint8_t ads112c04_readRegister(uint8_t regAddr) {
 
 /*
  * Configure ADS112C04 for bipolar differential measurement:
- *   - MUX = AIN0(+) - AIN1(-)
- *   - GAIN = 1
- *   - PGA_BYPASS = 1
- *   - Single-shot mode, 20 SPS
- *   - Internal 2.048V reference
- *
- * REG0 bits:
- *   [7:4] MUX[3:0]  = 0000  (AIN0 vs AIN1 differential)
- *   [3:1] GAIN[2:0] = 000   (gain = 1)
- *   [0]   PGA_BYPASS= 1     (bypass PGA)
- *   -> 0000 0001 = 0x01
- *
- * REG1 bits:
- *   DR[2:0]=000 (20SPS)
- *   MODE=0 (normal)
- *   CM=0 (single-shot)
- *   VREF[1:0]=00 (internal 2.048V)
- *   TS=0 (normal operation)
- *   -> 0x00
- *
- * REG2, REG3 left at 0x00 (defaults).
  */
 void ads112c04_init() {
   // Wait >500 µs after power-up before I2C traffic
   delayMicroseconds(1000);
-
   // Force known state
   ads112c04_sendCommand(ADS112C04_CMD_RESET);
   delayMicroseconds(50);
@@ -360,7 +224,6 @@ void ads112c04_init() {
   uint8_t reg1 = 0b11010100;  // differential AIN2-AVSS, gain=1, PGA bypass, SWINT use
   uint8_t reg2 = 0x00;        // default
   uint8_t reg3 = 0x00;        // default
-
   ads112c04_writeRegister(0, reg0);
   ads112c04_writeRegister(1, reg1);
   ads112c04_writeRegister(2, reg2);
@@ -369,17 +232,10 @@ void ads112c04_init() {
 
 /*
  * Take one single-shot reading:
- *   1. START/SYNC command (0x08) to trigger conversion in single-shot mode
- *   2. wait ~60 ms (20 SPS → ~50 ms conv time, we add margin)
- *   3. send RDATA (0x10) via write, then do repeated-start read of 2 bytes
- *
- * Returns true on success, fills rawCode (signed 16-bit).
- * rawCode is two's complement, full-scale ±2.048 V at gain=1.
  */
 bool ads112c04_singleShotReadRaw(int16_t &rawCode) {
   ads112c04_sendCommand(ADS112C04_CMD_STARTSYNC);
   while (digitalRead(PIN_ADCDAT) == HIGH) {}
-  //delay(60); // blocking wait; DRDY pin not used
 
   // send RDATA to request result
   Wire.beginTransmission(ADS112C04_ADDR);
@@ -397,7 +253,7 @@ bool ads112c04_singleShotReadRaw(int16_t &rawCode) {
 }
 
 /*
- * Print ADC2 result:
+ * Print ADC result:
  *   raw signed code and converted volts (bipolar, differential).
  */
 void printADC_ads112c04() {
@@ -438,7 +294,6 @@ void runMeasurementSequence(uint8_t start = SWITCH_MIN,
   }
 
   uint8_t frame[FRAME_LEN];
-
   Serial.print(F("Running sequence "));
   Serial.print(start);
   Serial.print('-');
@@ -458,44 +313,6 @@ void runMeasurementSequence(uint8_t start = SWITCH_MIN,
     delay(off_ms);
   }
   Serial.println(F("Sequence done."));
-}
-
-void runSwitchedIntegrator(uint16_t integration_time) {
-  //Measurement seq should...
-  // Pull hold high
-  digitalWrite(PIN_SWINT_HOLD, HIGH);
-  delayMicroseconds(10);
-  // Pull reset low
-  digitalWrite(PIN_SWINT_RESET, LOW);
-  delayMicroseconds(10);
-  // Pull reset high again
-  digitalWrite(PIN_SWINT_RESET, HIGH);
-  delayMicroseconds(10);
-  //Then pull hold low and hold it there for the rest of the integration time
-  digitalWrite(PIN_SWINT_HOLD, LOW);
-  delay(10);
-  //delayMicroseconds(integration_time-30);
-  digitalWrite(PIN_SWINT_HOLD, HIGH);
-  int16_t raw;
-  if (!ads112c04_singleShotReadRaw(raw)) {
-    Serial.println(F("ADC2 error (no data)"));
-    return;
-  }
-  // raw is two's complement, full-scale ±2.048 V at gain=1.
-  // LSB ≈ 62.5 µV.
-  float zeroed = raw - 16499;
-  float volts = zeroed * ADS112C04_LSB_VOLTS;
-  //float nanoAmps = -1*volts/20000000*1000000000;
-  Serial.print(F("ADC2 raw="));
-  Serial.print(raw);
-  Serial.print(F(" V="));
-  Serial.println(volts, 6);
-  digitalWrite(PIN_SWINT_HOLD, LOW);
-  //Serial.print(F(" nA="));
-  //Serial.println(nanoAmps,6);
-}
-
-void setVoltage(uint16_t voltage) {
 }
 
 /* ─── Util -------------------------------------------------------- */
@@ -534,23 +351,16 @@ void setup() {
   pinMode(PIN_AMPLIFIER_SEL, OUTPUT);
   pinMode(PIN_TIA_SELECT, OUTPUT);
   pinMode(PIN_SWINV_SELECT, OUTPUT);
-  pinMode(PIN_SWINT_HOLD, OUTPUT);
-  pinMode(PIN_SWINT_RESET, OUTPUT);
   pinMode(PIN_SPI_CS, OUTPUT);
   digitalWrite(PIN_SPI_CS, HIGH);
-  digitalWrite(PIN_SWINT_HOLD, LOW);
-  digitalWrite(PIN_SWINT_RESET, HIGH);
-  // Enable LEDs by default, blank shift regs
   digitalWrite(PIN_LED_ENABLE, HIGH);
+  randomSeed(EEPROM.read(0));
+  EEPROM.write(0,random(1000));
   clearRegister();
-
   // Startup visuals
   spiralSplash();
   showInfoScreen();
-
-  // Analog ref for on-chip ADC
-  analogReference(INTERNAL);  // 2.56 V internal ref for A7
-
+  
   // SPI init for PSU control
   SPI.begin();
   SPI.beginTransaction(SPISettings(125000, MSBFIRST, SPI_MODE0));
@@ -562,7 +372,7 @@ void setup() {
   // Serial init
   Serial.begin(SERIAL_BAUD);
   while (!Serial) { ; }  // wait for USB CDC
-
+  Serial.println(F("SaidaminovLab Switching Readout Board"));
   Serial.print(F("FW "));
   Serial.print(FW_VER_MAJOR);
   Serial.print('.');
@@ -573,14 +383,16 @@ void setup() {
 
   Serial.println(F("Ready – commands:"));
   Serial.println(F("  1-100        : drive individual switch"));
-  Serial.println(F("  REF          : drive only address bits (100/101/102=1)"));
+  Serial.println(F("  IDN          : identification string"));
+  Serial.println(F("  SWSTATUS     : get switch status"));
+  Serial.println(F("  REF          : Route reference 5ish nA source to output"));
   Serial.println(F("  SEQ ...      : run measurement sequence"));
   Serial.println(F("  LED ON/OFF   : master LED enable"));
   Serial.println(F("  VERBOSE ON/OFF"));
-  Serial.println(F("  ADC          : read on-chip A7 (unipolar)"));
-  Serial.println(F("  ADC2         : read ext. ADS112C04 (bipolar diff AIN0-AIN1)"));
-  Serial.println(F("  SPI <0-255>  : write byte to PSU over SPI"));
-  Serial.println(F("  TIA/AMP/ROUTE ON|OFF"));
+  Serial.println(F("  ADC         : read ext. ADS112C04 (bipolar diff AIN0-AIN1)"));
+  Serial.println(F("  SETVOLT <Voltage>  : Set Local Voltage Output (6-87V)"));
+  Serial.println(F("  MEASLOCAL   : Measure all inputs using local readout"));
+  Serial.println(F("  TIA/AMP/ROUTE ON|OFF : Output flow control (refer to docs)"));
 }
 
 /* ─── Loop -------------------------------------------------------- */
@@ -632,42 +444,34 @@ void loop() {
     return;
   }
 
-  /* ADC (on-chip A7, unipolar) ----------------------------------- */
-  if (up == "ADC" || up == "READ A7") {
-    printADC_local();
-    return;
-  }
 
   /* ADC2 (external ADS112C04 over I2C, bipolar diff) -------------- */
-  if (up == "ADC2") {
+  if (up == "ADC") {
     printADC_ads112c04();
     return;
   }
 
-  if (up == "SWINTR") {
-    runSwitchedIntegrator(100000);
-    return;
-  }
-
-  /* SPI byte write ------------------------------------------------ */
-  if (up.startsWith("SPI")) {  // e.g.  SPI 123
-    up.remove(0, 3);
+  if (up.startsWith("SETVOLT")){
+    up.remove(0,7);
     up.trim();
-    if (up.length() == 0) {
-      Serial.println(F("SPI cmd: need one byte (0-255)"));
+    if (up.length()==0){
+      Serial.println(F("Voltage Set Command: 6-87V"));
       return;
     }
-    long ival = strtol(up.c_str(), nullptr, 10);
-    if (ival < 0 || ival > 255) {
-      Serial.println(F("SPI cmd: value out of range (0-255)"));
+    long voltage_value = strtol(up.c_str(),nullptr,10);
+    if (voltage_value<6 || voltage_value>87){
+      Serial.println(F("Voltage out of range (6-87V)"));
       return;
     }
-    uint8_t b = static_cast<uint8_t>(ival);
-    spiSend(b);
-
-    Serial.print(F("  (bin: "));
-    for (int i = 7; i >= 0; --i) Serial.print((b >> i) & 1);
-    Serial.println(')');
+    // Round voltage to nearest possible value given 256 steps
+    float step_size = (87.6 - 5.72) / 255.0;
+    float nearest_voltage = round((voltage_value - 5.72) / step_size) * step_size + 6.0;
+    // Spi 1 = max, 255 = min
+    uint8_t spi_value = static_cast<uint8_t>(255 - ((nearest_voltage - 5.72) / step_size));
+    spiSend(spi_value);
+    Serial.print(F("Voltage set to: "));
+    Serial.print(nearest_voltage,2);
+    Serial.println(F(" V"));
     return;
   }
 
@@ -720,6 +524,16 @@ void loop() {
     return;
   }
 
+  if(up=="IDN"){
+    Serial.println("SaidaminovLab Readout Board RevB Board C");
+    return;
+  }
+
+  if(up=="SWSTATUS"){
+    //Serial.println(inactiveChannels);
+    return;
+  }
+
   if (up.startsWith("AMP")) {
     up.remove(0, 3);
     up.trim();
@@ -733,6 +547,15 @@ void loop() {
     setGpio(PIN_OUTPUT_ROUTER, up, "ROUTE");
     return;
   }
+
+  if (up.startsWith("CAL")){
+    up.remove(0, 3);
+    up.trim();
+    //float calValue = up.toFloat();
+    //setVoltage(static_cast<uint16_t>(calValue));
+    return;
+  }
+
   if (up.startsWith("MEASLOCAL")) {
     unsigned long starttime = millis();
     int16_t ADCVALS[100];
@@ -755,6 +578,7 @@ void loop() {
     Serial.println(timeelapsed);
     return;
   }
+
   /* Single switch (1-100) ----------------------------------------- */
   long val = line.toInt();
   if (val >= SWITCH_MIN && val <= SWITCH_MAX) {
@@ -769,8 +593,7 @@ void loop() {
       Serial.print(F(" → "));
       Serial.println(frameToString(frame));
     } else {
-      Serial.print(F("Switch "));
-      Serial.println(val);
+      Serial.println("ACK");
     }
     return;
   }

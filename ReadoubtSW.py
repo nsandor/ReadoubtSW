@@ -980,6 +980,7 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             self.switch = SwitchBoard(port)
             ser = self.switch.ser
+            ser.flush()  # clear buffer
             ser.write(b"VERBOSE OFF\n")
             ser.readline()
             ser.write(b"IDN\n")
