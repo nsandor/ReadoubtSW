@@ -7,7 +7,7 @@ from PySide6.QtCore import Signal
 
 
 class ScanWorker(QtCore.QObject):
-    pixelDone = Signal(int, float)
+    loopDataReady = Signal(int, object)
     loopStarted = Signal(int, object)
     loopFinished = Signal(int, object)
     deviceError = Signal(str)
@@ -38,7 +38,6 @@ class ScanWorker(QtCore.QObject):
         self._n = max(1, int(n_samples))
         self._nplc = max(0.01, float(nplc))
         self._pixels = list(pixel_indices)
-        self._pixel_set = set(self._pixels)
         self._loops = max(1, int(loops))
         self._auto_range = bool(auto_range)
         self._current_range = float(current_range)
@@ -137,6 +136,7 @@ class ScanWorker(QtCore.QObject):
                         metadata["requested_voltage"] = requested_voltage
                 self.loopStarted.emit(loop_idx, metadata)
                 runtime_ms = None
+                loop_results = []
                 if self._use_local_readout:
                     while self._paused and not self._stop:
                         QtCore.QThread.msleep(100)
@@ -155,7 +155,7 @@ class ScanWorker(QtCore.QObject):
                         if idx < 0 or idx >= len(currents_na):
                             continue
                         nanoamps = currents_na[idx]
-                        self.pixelDone.emit(p, float(nanoamps) * 1e-9)
+                        loop_results.append((p, float(nanoamps) * 1e-9))
                 else:
                     for p in self._pixels:
                         while self._paused and not self._stop:
@@ -188,10 +188,11 @@ class ScanWorker(QtCore.QObject):
                             vals.append(val)
                         if self._stop:
                             break
-                        self.pixelDone.emit(p, float(np.mean(vals)))
+                        loop_results.append((p, float(np.mean(vals))))
 
                 if self._stop:
                     break
+                self.loopDataReady.emit(loop_idx, loop_results)
                 if runtime_ms is not None:
                     if metadata is None:
                         metadata = {}

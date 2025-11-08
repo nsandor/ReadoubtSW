@@ -658,7 +658,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._worker.moveToThread(self._thread)
 
         # signals
-        self._worker.pixelDone.connect(self._on_pixel)
+        self._worker.loopDataReady.connect(self._on_loop_data)
         self._worker.loopStarted.connect(self._on_loop_started)
         self._worker.loopFinished.connect(self._on_loop_finished)
         self._worker.deviceError.connect(self._handle_device_error)
@@ -770,17 +770,31 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Loop Save Error", f"{e}")
 
-    def _on_pixel(self, idx: int, i_avg: float):
-        r, c = divmod(idx - 1, 10)
-        self.data[r, c] = i_avg
-        self._done_steps += 1
-        # progress + timers
+    def _on_loop_data(self, loop_idx: int, loop_values):
+        entries = list(loop_values) if loop_values is not None else []
+        updated = 0
+        for idx, i_avg in entries:
+            try:
+                r, c = divmod(int(idx) - 1, 10)
+            except Exception:
+                continue
+            if not (0 <= r < 10 and 0 <= c < 10):
+                continue
+            try:
+                self.data[r, c] = float(i_avg)
+            except Exception:
+                self.data[r, c] = np.nan
+            updated += 1
+        if updated == 0:
+            return
+        self._done_steps = min(
+            self._total_steps, self._done_steps + updated
+        )
         pct = int(100 * self._done_steps / max(1, self._total_steps))
         self.ui.ScanprogressBar.setValue(pct)
         elapsed = time.time() - getattr(self, "_start_time", time.time())
         rate = self._done_steps / max(elapsed, 1e-9)
         remaining = (self._total_steps - self._done_steps) / max(rate, 1e-9)
-        loop_idx = getattr(self, "_current_loop", 1)
         voltage_text = (
             f"  Bias: {self._voltage_display(self._current_voltage)}"
             if self._current_voltage is not None
