@@ -65,6 +65,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_voltage: Optional[float] = None
         self._voltage_sequence: List[float] = []
         self._constant_bias_voltage: Optional[float] = None
+        self._requested_voltage: Optional[float] = None
         self._voltage_control_widgets: List[QtWidgets.QWidget] = []
         self._loop_control_widgets: List[QtWidgets.QWidget] = []
         self._time_bias_widgets: List[QtWidgets.QWidget] = []
@@ -187,6 +188,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ui.label_voltage_settle,
             self.ui.spin_voltage_settle,
         ]
+        self._init_switch_options_panel()
 
         # ---- signal wiring ----
         self.ui.btn_run_abort.clicked.connect(self.on_run_abort_clicked)
@@ -234,13 +236,122 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_plots(reset=True)
         self._update_statusbar(text="Ready")
         self._update_bias_controls_state()
+        self._update_switch_controls_state()
         self._on_measurement_type_changed(
             self.ui.Measurement_type_combobox.currentIndex()
         )
 
+    def _init_switch_options_panel(self):
+        self.switch_options_box = QtWidgets.QGroupBox("Switch Board Options")
+        self.switch_options_box.setObjectName("switch_options_box")
+        layout = QtWidgets.QFormLayout(self.switch_options_box)
+        layout.setObjectName("switch_options_layout")
+
+        self.ui.label_readout_source = QtWidgets.QLabel("Readout source:")
+        self.ui.label_readout_source.setObjectName("label_readout_source")
+        self.ui.combo_readout_source = QtWidgets.QComboBox()
+        self.ui.combo_readout_source.setObjectName("combo_readout_source")
+        self.ui.combo_readout_source.addItems(
+            ["Read SMU", "Switch board (local)"]
+        )
+        layout.addRow(self.ui.label_readout_source, self.ui.combo_readout_source)
+
+        self.ui.label_bias_source = QtWidgets.QLabel("Bias source:")
+        self.ui.label_bias_source.setObjectName("label_bias_source")
+        self.ui.combo_bias_source = QtWidgets.QComboBox()
+        self.ui.combo_bias_source.setObjectName("combo_bias_source")
+        self.ui.combo_bias_source.addItems(
+            ["Bias SMU", "Switch board (local)"]
+        )
+        layout.addRow(self.ui.label_bias_source, self.ui.combo_bias_source)
+
+        self.ui.label_led_control = QtWidgets.QLabel("Board LEDs:")
+        self.ui.label_led_control.setObjectName("label_led_control")
+        self.ui.check_led_enable = QtWidgets.QCheckBox("Enable LEDs")
+        self.ui.check_led_enable.setObjectName("check_led_enable")
+        layout.addRow(self.ui.label_led_control, self.ui.check_led_enable)
+
+        idx = self.ui.verticalLayout.indexOf(self.ui.scan_settings_box)
+        insert_pos = max(0, idx + 1)
+        self.ui.verticalLayout.insertWidget(insert_pos, self.switch_options_box)
+
+        self.ui.combo_readout_source.currentIndexChanged.connect(
+            self._on_readout_source_changed
+        )
+        self.ui.combo_bias_source.currentIndexChanged.connect(
+            self._on_bias_source_changed
+        )
+        self.ui.check_led_enable.toggled.connect(self._handle_led_toggled)
+
     # ---------------------- convenience ----------------------
     def _update_statusbar(self, text: str):
         self.statusBar().showMessage(text, 4000)
+
+    def _switch_connected(self) -> bool:
+        return not isinstance(self.switch, DummySwitchBoard)
+
+    def _using_local_readout(self) -> bool:
+        combo = getattr(self.ui, "combo_readout_source", None)
+        return bool(combo and combo.currentIndex() == 1)
+
+    def _using_local_bias(self) -> bool:
+        combo = getattr(self.ui, "combo_bias_source", None)
+        return bool(combo and combo.currentIndex() == 1)
+
+    @staticmethod
+    def _set_combo_index(combo: QtWidgets.QComboBox, index: int):
+        combo.blockSignals(True)
+        combo.setCurrentIndex(index)
+        combo.blockSignals(False)
+
+    def _set_led_checkbox(self, checked: bool):
+        if not hasattr(self.ui, "check_led_enable"):
+            return
+        self.ui.check_led_enable.blockSignals(True)
+        self.ui.check_led_enable.setChecked(checked)
+        self.ui.check_led_enable.blockSignals(False)
+
+    def _update_switch_controls_state(self):
+        connected = self._switch_connected()
+        if not connected:
+            if self._using_local_readout():
+                self._set_combo_index(self.ui.combo_readout_source, 0)
+            if self._using_local_bias():
+                self._set_combo_index(self.ui.combo_bias_source, 0)
+            self._set_led_checkbox(False)
+        self.ui.check_led_enable.setEnabled(connected)
+        self._update_bias_controls_state()
+
+    def _handle_led_toggled(self, checked: bool):
+        if not self._switch_connected():
+            self._set_led_checkbox(False)
+            return
+        try:
+            self.switch.set_led(bool(checked))
+        except Exception as exc:
+            logging.error(f"Failed to toggle LEDs: {exc}")
+            QtWidgets.QMessageBox.warning(
+                self, "Switch LEDs", f"Failed to toggle LEDs:\n{exc}"
+            )
+            self._set_led_checkbox(not checked)
+
+    def _on_readout_source_changed(self, index: int):
+        if index == 1 and not self._switch_connected():
+            QtWidgets.QMessageBox.warning(
+                self, "Local Readout", "Connect the switch board to use local readout."
+            )
+            self._set_combo_index(self.ui.combo_readout_source, 0)
+            return
+        self._update_switch_controls_state()
+
+    def _on_bias_source_changed(self, index: int):
+        if index == 1 and not self._switch_connected():
+            QtWidgets.QMessageBox.warning(
+                self, "Local Bias", "Connect the switch board to use local bias."
+            )
+            self._set_combo_index(self.ui.combo_bias_source, 0)
+            return
+        self._update_bias_controls_state()
 
     def _bias_smu_connected(self) -> bool:
         return not isinstance(self.bias_sm, DummyBias2400)
@@ -250,7 +361,10 @@ class MainWindow(QtWidgets.QMainWindow):
         for widget in self._time_bias_widgets:
             widget.setVisible(show_bias)
 
-        bias_available = self._bias_smu_connected()
+        use_local_bias = self._using_local_bias()
+        bias_available = (
+            self._switch_connected() if use_local_bias else self._bias_smu_connected()
+        )
         checkbox_enabled = bias_available and show_bias
         if not bias_available and self.ui.check_bias_enable.isChecked():
             self.ui.check_bias_enable.blockSignals(True)
@@ -335,6 +449,7 @@ class MainWindow(QtWidgets.QMainWindow):
         step = float(self.ui.spin_voltage_step.value())
         settle = float(self.ui.spin_voltage_settle.value())
         voltages = self._generate_voltage_steps(start, end, step)
+        self._ensure_local_bias_supported(voltages)
         return voltages, max(0.0, settle)
 
     def _collect_time_bias_voltage(self) -> Optional[float]:
@@ -342,7 +457,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return None
         if not self.ui.check_bias_enable.isChecked():
             return None
-        if not self._bias_smu_connected():
+        if not self._bias_smu_connected() and not self._using_local_bias():
             raise ValueError(
                 "Connect a bias sourcemeter before enabling a bias voltage."
             )
@@ -353,7 +468,21 @@ class MainWindow(QtWidgets.QMainWindow):
             if thickness <= 0:
                 raise ValueError("Sample thickness must be positive (cm).")
             value *= thickness
-        return round(value, 6)
+        value = round(value, 6)
+        self._ensure_local_bias_supported([value])
+        return value
+
+    def _ensure_local_bias_supported(self, voltages: Iterable[float]):
+        if not self._using_local_bias():
+            return
+        min_v, max_v = 6.0, 87.0
+        for v in voltages:
+            if v is None:
+                continue
+            if not (min_v <= float(v) <= max_v):
+                raise ValueError(
+                    f"Local bias via switch board supports {min_v:.0f}–{max_v:.0f} V."
+                )
 
     # ---------------------- selection/parse ----------------------
     @staticmethod
@@ -447,12 +576,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self._loop_label = "Voltage Step" if voltage_mode else "Loop"
         self._current_voltage = None
         self._constant_bias_voltage = None
+        self._requested_voltage = None
+        use_local_readout = self._using_local_readout()
+        use_local_bias = self._using_local_bias()
+        if use_local_readout and not self._switch_connected():
+            QtWidgets.QMessageBox.critical(
+                self, "Switch Board", "Connect the switch board for local readout."
+            )
+            return
+        if use_local_bias and not self._switch_connected():
+            QtWidgets.QMessageBox.critical(
+                self, "Switch Board", "Connect the switch board for local bias."
+            )
+            return
 
         voltage_steps = None
         settle_time = 0.0
         constant_bias_voltage: Optional[float] = None
         if voltage_mode:
-            if isinstance(self.bias_sm, DummyBias2400):
+            if not use_local_bias and isinstance(self.bias_sm, DummyBias2400):
                 QtWidgets.QMessageBox.critical(
                     self,
                     "Bias SMU",
@@ -490,7 +632,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # worker
         bias_device = (
             self.bias_sm
-            if voltage_mode or constant_bias_voltage is not None
+            if (voltage_mode or constant_bias_voltage is not None) and not use_local_bias
             else None
         )
 
@@ -509,6 +651,8 @@ class MainWindow(QtWidgets.QMainWindow):
             voltage_steps=voltage_steps if voltage_mode else None,
             voltage_settle_s=settle_time if voltage_mode else 0.0,
             constant_bias_voltage=constant_bias_voltage if not voltage_mode else None,
+            use_local_readout=use_local_readout,
+            use_local_bias=use_local_bias,
         )
         self._thread = QtCore.QThread()
         self._worker.moveToThread(self._thread)
@@ -549,9 +693,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_loop_started(self, loop_idx: int, metadata: Optional[dict] = None):
         self.data.fill(np.nan)
         voltage = None
+        requested_voltage = None
         if metadata and isinstance(metadata, dict):
             voltage = metadata.get("voltage")
+            requested_voltage = metadata.get("requested_voltage")
         self._current_voltage = float(voltage) if voltage is not None else None
+        self._requested_voltage = (
+            float(requested_voltage)
+            if requested_voltage is not None
+            else self._current_voltage
+        )
         if self._current_voltage is not None:
             self._current_loop_tag = self._voltage_file_tag(self._current_voltage)
         else:
@@ -559,6 +710,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_plots(reset=True)
         if self._current_voltage is not None:
             display = self._voltage_display(self._current_voltage)
+            if (
+                self._requested_voltage is not None
+                and abs(self._requested_voltage - self._current_voltage) > 5e-4
+            ):
+                display = (
+                    f"{display} (req {self._voltage_display(self._requested_voltage)})"
+                )
             if self.measurement_mode == "voltage":
                 total = len(self._voltage_sequence) or "?"
                 msg = f"Voltage step {loop_idx}/{total}: {display}"
@@ -575,8 +733,10 @@ class MainWindow(QtWidgets.QMainWindow):
             if not self._run_folder:
                 self._ensure_run_folder()
             voltage = None
+            runtime_ms = None
             if metadata and isinstance(metadata, dict):
                 voltage = metadata.get("voltage")
+                runtime_ms = metadata.get("runtime_ms")
             if self._current_voltage is not None and voltage is None:
                 voltage = self._current_voltage
             if voltage is not None:
@@ -587,6 +747,9 @@ class MainWindow(QtWidgets.QMainWindow):
             arr = self._apply_math(self.data) if self.save_processed else self.data
             np.savetxt(self._run_folder / out_name, arr, delimiter=",", fmt="%.5e")
             mode = "processed" if self.save_processed else "raw"
+            runtime_text = ""
+            if runtime_ms is not None:
+                runtime_text = f" – local read {float(runtime_ms) / 1000.0:.2f}s"
             if voltage is not None:
                 heatmap_name = f"voltage_{loop_idx:03d}_{tag}_heatmap.png"
                 try:
@@ -598,10 +761,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 except Exception as exc:
                     logging.warning(f"Failed to save heatmap for {heatmap_name}: {exc}")
                 self._update_statusbar(
-                    f"Saved {mode} data at {self._voltage_display(float(voltage))}"
+                    f"Saved {mode} data at {self._voltage_display(float(voltage))}{runtime_text}"
                 )
             else:
-                self._update_statusbar(text=f"Loop {loop_idx} saved ({mode})")
+                self._update_statusbar(
+                    text=f"Loop {loop_idx} saved ({mode}){runtime_text}"
+                )
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Loop Save Error", f"{e}")
 
@@ -991,6 +1156,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.inactive_channels = (
                 [int(x) for x in status.split(",") if x.strip()] if status else []
             )
+            self._set_led_checkbox(False)
             QtWidgets.QMessageBox.information(
                 self, "Switch", f"Connected on {port}.\nID: {idn}"
             )
@@ -998,8 +1164,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.switch = DummySwitchBoard()
             self.switch_idn = "Switch: (not connected)"
             self.inactive_channels = []
+            self._set_led_checkbox(False)
             QtWidgets.QMessageBox.critical(self, "Switch", f"Failed: {e}")
         self._update_statusbar(self.switch_idn)
+        self._update_switch_controls_state()
         self._update_plots(reset=False)
 
     def _open_analysis_window(self):

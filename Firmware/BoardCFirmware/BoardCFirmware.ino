@@ -180,9 +180,11 @@ void spiSend(uint8_t b1) {
   digitalWrite(PIN_SPI_CS, LOW);
   SPI.transfer(b1);
   digitalWrite(PIN_SPI_CS, HIGH);
+  if (verbose){
   Serial.print(F("SPI sent: 0x"));
   Serial.print(b1, HEX);
   Serial.println();
+  }
 }
 
 /* ─── ADS112C04 low-level I2C helpers ----------------------------- */
@@ -260,7 +262,7 @@ bool ads112c04_singleShotReadRaw(int16_t &rawCode) {
 void printADC_ads112c04() {
   int16_t raw;
   if (!ads112c04_singleShotReadRaw(raw)) {
-    Serial.println(F("ADC2 error (no data)"));
+    Serial.println(F("ADC error (no data)"));
     return;
   }
 
@@ -269,7 +271,7 @@ void printADC_ads112c04() {
   float zeroed = raw - 16499;
   float volts = zeroed * ADS112C04_LSB_VOLTS;
   float nanoAmps = -1 * volts / 20000000 * 1000000000;
-  Serial.print(F("ADC2 raw="));
+  Serial.print(F("ADC raw="));
   Serial.print(raw);
   Serial.print(F(" V="));
   Serial.println(volts, 6);
@@ -475,9 +477,15 @@ void loop() {
     // Spi 1 = max, 255 = min
     uint8_t spi_value = static_cast<uint8_t>(255 - ((nearest_voltage - 5.72) / step_size));
     spiSend(spi_value);
-    Serial.print(F("Voltage set to: "));
-    Serial.print(nearest_voltage,2);
-    Serial.println(F(" V"));
+    if (verbose){
+      Serial.print(F("Voltage set to: "));
+      Serial.print(nearest_voltage,2);
+      Serial.println(F(" V"));
+    }
+    else{
+      Serial.println(nearest_voltage,2);
+    }
+
     return;
   }
 
