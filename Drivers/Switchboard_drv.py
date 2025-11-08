@@ -7,7 +7,7 @@ import serial
 class SwitchBoard:
     """USB 100:1 switch with ACK sync."""
 
-    def __init__(self, port: str, baud: int = 9600, timeout: float = 2.0):
+    def __init__(self, port: str, baud: int = 115200, timeout: float = 5):
         if serial is None:
             raise RuntimeError("pyserial not available")
         self.ser = serial.Serial(port, baudrate=baud, timeout=timeout)

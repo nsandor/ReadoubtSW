@@ -357,8 +357,9 @@ void setup() {
   pinMode(PIN_SPI_CS, OUTPUT);
   digitalWrite(PIN_SPI_CS, HIGH);
   digitalWrite(PIN_LED_ENABLE, HIGH);
+  //EEPROM.write(0,345);
   randomSeed(EEPROM.read(0));
-  //EEPROM.write(0,random(1000));
+  EEPROM.write(0,random(1000));
   calValue = EEPROM.read(10);
   clearRegister();
   // Startup visuals
@@ -375,7 +376,7 @@ void setup() {
 
   // Serial init
   Serial.begin(SERIAL_BAUD);
-  while (!Serial) { ; }  // wait for USB CDC
+  while (!Serial) { ; }  
   Serial.println(F("SaidaminovLab Switching Readout Board"));
   Serial.print(F("FW "));
   Serial.print(FW_VER_MAJOR);
@@ -563,9 +564,10 @@ void loop() {
   }
 
   if (up.startsWith("SETCAL")){
-    up.remove(0, 3);
+    up.remove(0, 6);
     up.trim();
-    float calValue = up.toFloat();
+    
+    float calValue = strtol(up.c_str(),nullptr,10);
     EEPROM.write(10,calValue);
     Serial.print(F("Calibration value set to: "));
     Serial.println(calValue);
@@ -587,6 +589,7 @@ void loop() {
     if (!local){
       setGpio(PIN_AMPLIFIER_SEL, "ON", "AMP"); 
       setGpio(PIN_TIA_SELECT, "ON", "TIA");
+      //setGpio(PIN_SWINV_SELECT, "ON", "SWINV");
       setGpio(PIN_OUTPUT_ROUTER, "OFF", "ROUTE");
       local = true;
     }
@@ -596,7 +599,7 @@ void loop() {
       uint8_t frame[FRAME_LEN];
       buildSwitchFrame(idx, frame);
       shiftFrameMSBFirst(frame, FRAME_LEN);
-      delay(1); //Settling time
+      delay(400); //Settling time
       ads112c04_singleShotReadRaw(ADCVALS[idx]);
     }
     unsigned long endtime = millis();
@@ -605,7 +608,7 @@ void loop() {
       float zeroed = ADCVALS[idx] - 16499;
       float volts = zeroed * ADS112C04_LSB_VOLTS;
       float nanoAmps = calValue*-1 * volts / 20000000 * 1000000000;
-      Serial.println(nanoAmps);
+      Serial.println(nanoAmps,5);
     }
     unsigned long timeelapsed = endtime - starttime;
     Serial.println(timeelapsed);

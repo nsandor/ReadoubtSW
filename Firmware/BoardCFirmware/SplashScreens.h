@@ -2,7 +2,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <EEPROM.h>
-constexpr char BOARD_ID = 'C';  // compile-time letter A-E
+constexpr char BOARD_ID = 'D';  // compile-time letter A-E
 constexpr uint8_t FW_VER_MAJOR = 2;
 constexpr uint8_t FW_VER_MINOR = 1;
 constexpr uint16_t FRAME_LENA = 104;
