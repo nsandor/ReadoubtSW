@@ -12,7 +12,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.colors import Normalize, to_hex
 import matplotlib.pyplot as plt
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtWidgets, QtGui
 
 # Type aliases
 PixelParser = Callable[[str], Sequence[int]]
@@ -420,8 +420,17 @@ class AnalysisWindow(QtWidgets.QMainWindow):
     def _update_dataset_availability(self) -> None:
         has_time = bool(self._time_entries)
         has_voltage = bool(self._voltage_entries)
-        self.dataset_combo.setItemData(0, bool(has_time), QtCore.Qt.ItemDataRole.EnabledRole)
-        self.dataset_combo.setItemData(1, bool(has_voltage), QtCore.Qt.ItemDataRole.EnabledRole)
+        dataset_flags = (has_time, has_voltage)
+        model = self.dataset_combo.model()
+        if isinstance(model, QtGui.QStandardItemModel):
+            for row, enabled in enumerate(dataset_flags):
+                item = model.item(row)
+                if item is not None:
+                    item.setEnabled(bool(enabled))
+        view = self.dataset_combo.view()
+        if view is not None:
+            for row, enabled in enumerate(dataset_flags):
+                view.setRowHidden(row, not enabled)
 
         if not has_time and self.dataset_combo.currentData() == "time" and has_voltage:
             self.dataset_combo.setCurrentIndex(1)

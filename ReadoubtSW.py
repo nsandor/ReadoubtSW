@@ -5,6 +5,7 @@ import logging
 import sys
 import time
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -33,6 +34,17 @@ from Scanner import ScanWorker
 from Analysis.analysis_window import AnalysisWindow
 
 
+@dataclass
+class LoopSnapshot:
+    number: int
+    label: str
+    voltage: Optional[float]
+    requested_voltage: Optional[float]
+    data: np.ndarray
+    runtime_ms: Optional[float] = None
+    timestamp: float = field(default_factory=lambda: time.time())
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -57,6 +69,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.math_eps: float = 1e-12
         self.save_processed: bool = False
         self.inactive_channels: List[int] = []
+        self._loop_history: List[LoopSnapshot] = []
+        self._selected_history_index: Optional[int] = None
         self._is_paused = False
         self._thread: Optional[QtCore.QThread] = None
         self._worker: Optional[ScanWorker] = None
@@ -189,6 +203,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ui.spin_voltage_settle,
         ]
         self._init_switch_options_panel()
+        self._init_loop_scrubber()
 
         # ---- signal wiring ----
         self.ui.btn_run_abort.clicked.connect(self.on_run_abort_clicked)
@@ -282,6 +297,183 @@ class MainWindow(QtWidgets.QMainWindow):
             self._on_bias_source_changed
         )
         self.ui.check_led_enable.toggled.connect(self._handle_led_toggled)
+
+    def _init_loop_scrubber(self):
+        container = QtWidgets.QWidget()
+        container.setObjectName("loopScrubWidget")
+        layout = QtWidgets.QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        label = QtWidgets.QLabel("Loop viewer:")
+        label.setObjectName("loop_scrub_label")
+        slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        slider.setObjectName("loop_scrub_slider")
+        slider.setMinimum(0)
+        slider.setMaximum(0)
+        slider.setSingleStep(1)
+        slider.setPageStep(1)
+        slider.setEnabled(False)
+        spin = QtWidgets.QSpinBox()
+        spin.setObjectName("loop_scrub_spin")
+        spin.setMinimum(0)
+        spin.setMaximum(0)
+        spin.setEnabled(False)
+        info = QtWidgets.QLabel("Loops will appear here after a scan.")
+        info.setObjectName("loop_scrub_info")
+        info.setMinimumWidth(200)
+        layout.addWidget(label)
+        layout.addWidget(slider, 1)
+        layout.addWidget(spin)
+        layout.addWidget(info)
+        self.ui.plot_area_layout.insertWidget(1, container)
+        slider.valueChanged.connect(self._on_loop_slider_changed)
+        spin.valueChanged.connect(self._on_loop_spin_changed)
+        self._loop_scrub_widget = container
+        self._loop_scrub_slider = slider
+        self._loop_scrub_spin = spin
+        self._loop_scrub_info = info
+        self._update_loop_scrub_state()
+
+    def _clear_loop_history(self):
+        self._loop_history.clear()
+        self._selected_history_index = None
+        self._update_loop_scrub_state()
+
+    def _update_loop_scrub_state(self):
+        slider = getattr(self, "_loop_scrub_slider", None)
+        spin = getattr(self, "_loop_scrub_spin", None)
+        if slider is None or spin is None:
+            return
+        count = len(self._loop_history)
+        slider.blockSignals(True)
+        spin.blockSignals(True)
+        if count:
+            slider.setMinimum(1)
+            slider.setMaximum(count)
+            if (
+                self._selected_history_index is None
+                or self._selected_history_index >= count
+            ):
+                self._selected_history_index = count - 1
+            slider.setValue(self._selected_history_index + 1)
+            spin.setMinimum(1)
+            spin.setMaximum(count)
+            spin.setValue(self._selected_history_index + 1)
+        else:
+            slider.setMinimum(0)
+            slider.setMaximum(0)
+            slider.setValue(0)
+            spin.setMinimum(0)
+            spin.setMaximum(0)
+            spin.setValue(0)
+        slider.blockSignals(False)
+        spin.blockSignals(False)
+        enable_controls = count > 0 and self._thread is None
+        slider.setEnabled(enable_controls)
+        spin.setEnabled(enable_controls)
+        self._update_loop_scrub_info()
+
+    def _update_loop_scrub_info(self):
+        info = getattr(self, "_loop_scrub_info", None)
+        if info is None:
+            return
+        if not self._loop_history:
+            info.setText("No loops captured yet.")
+            return
+        if self._thread is not None:
+            info.setText(
+                f"{len(self._loop_history)} loops captured – scrub after scan finishes."
+            )
+            return
+        if self._selected_history_index is None:
+            info.setText(f"{len(self._loop_history)} loops captured.")
+            return
+        info.setText(self._format_loop_snapshot_text(self._selected_history_index))
+
+    def _format_loop_snapshot_text(self, index: int) -> str:
+        if not (0 <= index < len(self._loop_history)):
+            return ""
+        snapshot = self._loop_history[index]
+        total = len(self._loop_history)
+        label = snapshot.label or self._loop_label or "Loop"
+        parts = [f"{label} {snapshot.number} of {total}"]
+        if snapshot.voltage is not None:
+            voltage_text = self._voltage_display(float(snapshot.voltage))
+            if (
+                snapshot.requested_voltage is not None
+                and abs(float(snapshot.requested_voltage) - float(snapshot.voltage))
+                > 5e-4
+            ):
+                voltage_text = (
+                    f"{voltage_text} (req {self._voltage_display(float(snapshot.requested_voltage))})"
+                )
+            parts.append(voltage_text)
+        if snapshot.runtime_ms is not None:
+            parts.append(f"{snapshot.runtime_ms / 1000.0:.2f}s local read")
+        return " – ".join(parts)
+
+    def _set_loop_selection(self, index: int, source: str):
+        if self._thread is not None:
+            return
+        if not (0 <= index < len(self._loop_history)):
+            return
+        if self._selected_history_index == index:
+            self._update_loop_scrub_info()
+            return
+        self._selected_history_index = index
+        if source != "slider":
+            self._loop_scrub_slider.blockSignals(True)
+            self._loop_scrub_slider.setValue(index + 1)
+            self._loop_scrub_slider.blockSignals(False)
+        if source != "spin":
+            self._loop_scrub_spin.blockSignals(True)
+            self._loop_scrub_spin.setValue(index + 1)
+            self._loop_scrub_spin.blockSignals(False)
+        snapshot = self._loop_history[index]
+        self.data = np.array(snapshot.data, copy=True)
+        self._current_voltage = (
+            float(snapshot.voltage) if snapshot.voltage is not None else None
+        )
+        self._update_plots(reset=False)
+        self._update_loop_scrub_info()
+
+    def _on_loop_slider_changed(self, value: int):
+        if value <= 0:
+            return
+        self._set_loop_selection(value - 1, source="slider")
+
+    def _on_loop_spin_changed(self, value: int):
+        if value <= 0:
+            return
+        self._set_loop_selection(value - 1, source="spin")
+
+    def _store_loop_snapshot(self, loop_idx: int, metadata: Optional[dict]):
+        try:
+            data_copy = np.array(self.data, copy=True)
+        except Exception:
+            return
+        voltage = None
+        requested = None
+        runtime_ms = None
+        if metadata and isinstance(metadata, dict):
+            voltage = metadata.get("voltage")
+            requested = metadata.get("requested_voltage")
+            runtime_ms = metadata.get("runtime_ms")
+        if voltage is None and self._current_voltage is not None:
+            voltage = self._current_voltage
+        snapshot = LoopSnapshot(
+            number=int(loop_idx),
+            label=self._loop_label,
+            voltage=float(voltage) if voltage is not None else None,
+            requested_voltage=(
+                float(requested) if requested is not None else None
+            ),
+            data=data_copy,
+            runtime_ms=float(runtime_ms) if runtime_ms is not None else None,
+        )
+        self._loop_history.append(snapshot)
+        self._selected_history_index = len(self._loop_history) - 1
+        self._update_loop_scrub_state()
 
     # ---------------------- convenience ----------------------
     def _update_statusbar(self, text: str):
@@ -564,6 +756,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # reset data and UI
         self.data.fill(np.nan)
+        self._clear_loop_history()
         self._update_plots(reset=True)
         nplc = self.ui.spin_nplc.value()
         nsamp = self.ui.spin_nsamp.value()
@@ -769,6 +962,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Loop Save Error", f"{e}")
+        finally:
+            self._store_loop_snapshot(loop_idx, metadata)
 
     def _on_loop_data(self, loop_idx: int, loop_values):
         entries = list(loop_values) if loop_values is not None else []
@@ -839,6 +1034,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._voltage_sequence = []
         self._constant_bias_voltage = None
         self._update_statusbar(text="Scan finished.")
+        self._update_loop_scrub_state()
         if self.analysis_window and self._run_folder:
             try:
                 self.analysis_window.set_run_folder(self._run_folder, auto_load=True)
