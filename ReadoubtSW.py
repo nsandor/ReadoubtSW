@@ -31,7 +31,9 @@ from Drivers.Keithley2400_drv import (
 from Drivers.Switchboard_drv import DummySwitchBoard, SwitchBoard
 from Readoubt_ui import Ui_MainWindow
 from Scanner import ScanWorker
+from ScannerWin.acquisition import AcquisitionSettings
 from Analysis.analysis_window import AnalysisWindow
+from StageScan.stage_scan_window import StageScanWindow
 
 
 @dataclass
@@ -53,10 +55,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.setupUi(self)
         self.setWindowTitle("Readoubt")
         self.analysis_window: Optional[AnalysisWindow] = None
+        self.stage_window: Optional[StageScanWindow] = None
         self.menu_analysis = self.ui.menuBar.addMenu("Analysis")
         self.action_open_analysis = QtGui.QAction("Open Analysis Window", self)
         self.menu_analysis.addAction(self.action_open_analysis)
         self.action_open_analysis.triggered.connect(self._open_analysis_window)
+        self.menu_stage = self.ui.menuBar.addMenu("Stage")
+        self.action_open_stage = QtGui.QAction("Open Stage Scan Window", self)
+        self.menu_stage.addAction(self.action_open_stage)
+        self.action_open_stage.triggered.connect(self._open_stage_scan_window)
 
         # ---- paths/state ----
         self.output_folder: Path = Path.home()
@@ -701,6 +708,82 @@ class MainWindow(QtWidgets.QMainWindow):
             raise ValueError("No valid pixel indices in selection")
         return sorted(indices)
 
+    def _build_acquisition_settings(self) -> AcquisitionSettings:
+        try:
+            pixels = self._parse_pixel_spec(self.ui.edit_pixel_spec.text())
+        except Exception as exc:
+            raise ValueError(f"Pixel selection invalid: {exc}") from exc
+
+        auto_range = self.ui.check_auto_current_range.isChecked()
+        if auto_range:
+            current_range = 1e-7
+        else:
+            try:
+                current_range = float(self.ui.edit_current_range.text())
+            except Exception as exc:
+                raise ValueError("Manual range must be positive (A).") from exc
+            if current_range <= 0:
+                raise ValueError("Manual range must be positive (A).")
+
+        nplc = float(self.ui.spin_nplc.value())
+        samples_per_pixel = max(1, int(self.ui.spin_nsamp.value()))
+        try:
+            inter_loop_delay = float(self.ui.loop_delay.text())
+        except Exception:
+            inter_loop_delay = 0.0
+
+        measurement_text = (
+            self.ui.Measurement_type_combobox.currentText() or ""
+        ).lower()
+        voltage_mode = "voltage" in measurement_text
+        measurement_mode = "voltage" if voltage_mode else "time"
+
+        use_local_readout = self._using_local_readout()
+        use_local_bias = self._using_local_bias()
+        if use_local_readout and not self._switch_connected():
+            raise RuntimeError("Connect the switch board for local readout.")
+        if use_local_bias and not self._switch_connected():
+            raise RuntimeError("Connect the switch board for local bias.")
+
+        voltage_steps: Optional[List[float]] = None
+        settle_time = 0.0
+        constant_bias_voltage: Optional[float] = None
+
+        if voltage_mode:
+            if not use_local_bias and isinstance(self.bias_sm, DummyBias2400):
+                raise RuntimeError(
+                    "Connect a bias sourcemeter before running a voltage sweep."
+                )
+            voltage_steps, settle_time = self._collect_voltage_sweep_settings()
+            loops = len(voltage_steps)
+            inter_loop_delay = 0.0
+        else:
+            constant_bias_voltage = self._collect_time_bias_voltage()
+            loops = max(1, int(self.ui.spin_loops.value()))
+
+        if loops <= 0:
+            raise ValueError("At least one iteration is required.")
+
+        return AcquisitionSettings(
+            pixels=pixels,
+            samples_per_pixel=samples_per_pixel,
+            nplc=nplc,
+            loops=loops,
+            inter_loop_delay_s=max(0.0, inter_loop_delay),
+            auto_range=auto_range,
+            current_range=current_range,
+            measurement_mode=measurement_mode,
+            voltage_steps=voltage_steps,
+            voltage_settle_s=settle_time,
+            constant_bias_voltage=constant_bias_voltage,
+            use_local_readout=use_local_readout,
+            use_local_bias=use_local_bias,
+        )
+
+    def export_acquisition_settings(self) -> AcquisitionSettings:
+        """Expose current UI acquisition settings for auxiliary tools."""
+        return self._build_acquisition_settings()
+
     # ---------------------- run control ----------------------
     def on_run_abort_clicked(self):
         if self._thread is not None:
@@ -735,92 +818,36 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Output Folder", str(e))
             return
         try:
-            pixels = self._parse_pixel_spec(self.ui.edit_pixel_spec.text())
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Pixel Selection", f"{e}")
+            settings = self._build_acquisition_settings()
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Scan Setup", f"{exc}")
             return
 
-        auto_rng = self.ui.check_auto_current_range.isChecked()
-        try:
-            cur_rng = float(self.ui.edit_current_range.text())
-            if cur_rng <= 0:
-                raise ValueError
-        except Exception:
-            if auto_rng:
-                cur_rng = 1e-7
-            else:
-                QtWidgets.QMessageBox.critical(
-                    self, "Current Range", "Manual range must be positive (A)."
-                )
-                return
+        pixels = settings.pixels
+        auto_rng = settings.auto_range
+        cur_rng = settings.current_range
+        nplc = settings.nplc
+        nsamp = settings.samples_per_pixel
+        voltage_mode = settings.measurement_mode == "voltage"
+        loops = settings.loops
+        inter_loop_delay = settings.inter_loop_delay_s
 
         # reset data and UI
         self.data.fill(np.nan)
         self._clear_loop_history()
         self._update_plots(reset=True)
-        nplc = self.ui.spin_nplc.value()
-        nsamp = self.ui.spin_nsamp.value()
 
-        measurement_text = (
-            self.ui.Measurement_type_combobox.currentText() or ""
-        ).lower()
-        voltage_mode = "voltage" in measurement_text
-        self.measurement_mode = "voltage" if voltage_mode else "time"
+        self.measurement_mode = settings.measurement_mode
         self._loop_label = "Voltage Step" if voltage_mode else "Loop"
         self._current_voltage = None
-        self._constant_bias_voltage = None
         self._requested_voltage = None
-        use_local_readout = self._using_local_readout()
-        use_local_bias = self._using_local_bias()
-        if use_local_readout and not self._switch_connected():
-            QtWidgets.QMessageBox.critical(
-                self, "Switch Board", "Connect the switch board for local readout."
-            )
-            return
-        if use_local_bias and not self._switch_connected():
-            QtWidgets.QMessageBox.critical(
-                self, "Switch Board", "Connect the switch board for local bias."
-            )
-            return
-
-        voltage_steps = None
-        settle_time = 0.0
-        constant_bias_voltage: Optional[float] = None
-        if voltage_mode:
-            if not use_local_bias and isinstance(self.bias_sm, DummyBias2400):
-                QtWidgets.QMessageBox.critical(
-                    self,
-                    "Bias SMU",
-                    "Connect a bias sourcemeter before running a voltage sweep.",
-                )
-                return
-            try:
-                voltage_steps, settle_time = self._collect_voltage_sweep_settings()
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Voltage Sweep", f"{e}")
-                return
-            loops = len(voltage_steps)
-            inter_loop_delay = 0.0
-            self._voltage_sequence = voltage_steps
-        else:
-            try:
-                constant_bias_voltage = self._collect_time_bias_voltage()
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Bias Voltage", f"{e}")
-                return
-            loops = self.ui.spin_loops.value()
-            try:
-                inter_loop_delay = float(self.ui.loop_delay.text())
-            except Exception:
-                inter_loop_delay = 0.0
-            self._voltage_sequence = []
-            self._constant_bias_voltage = constant_bias_voltage
-
-        if loops <= 0:
-            QtWidgets.QMessageBox.critical(
-                self, "Scan", "At least one iteration is required."
-            )
-            return
+        self._voltage_sequence = settings.voltage_steps or []
+        constant_bias_voltage = (
+            settings.constant_bias_voltage if not voltage_mode else None
+        )
+        self._constant_bias_voltage = constant_bias_voltage
+        use_local_readout = settings.use_local_readout
+        use_local_bias = settings.use_local_bias
 
         # worker
         bias_device = (
@@ -828,6 +855,8 @@ class MainWindow(QtWidgets.QMainWindow):
             if (voltage_mode or constant_bias_voltage is not None) and not use_local_bias
             else None
         )
+        voltage_steps = settings.voltage_steps if voltage_mode else None
+        settle_time = settings.voltage_settle_s if voltage_mode else 0.0
 
         self._worker = ScanWorker(
             self.sm,
@@ -1401,6 +1430,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.analysis_window.show()
         self.analysis_window.raise_()
         self.analysis_window.activateWindow()
+
+    def _open_stage_scan_window(self):
+        if self.stage_window is None:
+            try:
+                self.stage_window = StageScanWindow(self)
+                self.stage_window.destroyed.connect(
+                    lambda *_: setattr(self, "stage_window", None)
+                )
+            except Exception as exc:
+                logging.error(f"Failed to create stage window: {exc}")
+                QtWidgets.QMessageBox.critical(
+                    self, "Stage Scan", f"Failed to open stage window:\n{exc}"
+                )
+                self.stage_window = None
+                return
+        self.stage_window.show()
+        self.stage_window.raise_()
+        self.stage_window.activateWindow()
 
     # ---------------------- misc ----------------------
     def _update_integration_time_label(self):

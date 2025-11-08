@@ -599,7 +599,7 @@ void loop() {
       uint8_t frame[FRAME_LEN];
       buildSwitchFrame(idx, frame);
       shiftFrameMSBFirst(frame, FRAME_LEN);
-      delay(400); //Settling time
+      delay(4); //Settling time
       ads112c04_singleShotReadRaw(ADCVALS[idx]);
     }
     unsigned long endtime = millis();
