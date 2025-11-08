@@ -69,7 +69,8 @@ constexpr float ADS112C04_LSB_VOLTS = 0.000142;
 
 /* ─── Global state ─────────────────────────────────────────────── */
 bool verbose = true;
-
+bool local = false;
+float calValue;
 /* ─── Low-level helpers (shift reg / LED matrix) ───────────────── */
 
 void clearRegister() {
@@ -355,7 +356,8 @@ void setup() {
   digitalWrite(PIN_SPI_CS, HIGH);
   digitalWrite(PIN_LED_ENABLE, HIGH);
   randomSeed(EEPROM.read(0));
-  EEPROM.write(0,random(1000));
+  //EEPROM.write(0,random(1000));
+  calValue = EEPROM.read(10);
   clearRegister();
   // Startup visuals
   spiralSplash();
@@ -381,6 +383,9 @@ void setup() {
   Serial.print(F("Board "));
   Serial.println(BOARD_ID);
 
+  Serial.print(F("Calibration value: "));
+  Serial.println(calValue);
+
   Serial.println(F("Ready – commands:"));
   Serial.println(F("  1-100        : drive individual switch"));
   Serial.println(F("  IDN          : identification string"));
@@ -391,7 +396,8 @@ void setup() {
   Serial.println(F("  VERBOSE ON/OFF"));
   Serial.println(F("  ADC         : read ext. ADS112C04 (bipolar diff AIN0-AIN1)"));
   Serial.println(F("  SETVOLT <Voltage>  : Set Local Voltage Output (6-87V)"));
-  Serial.println(F("  MEASLOCAL   : Measure all inputs using local readout"));
+  Serial.println(F("  MEASURE_LOCAL   : Measure all inputs using local readout"));
+  Serial.println(F("  MEASURE_EXTERNAL   : Configure for external readout"));
   Serial.println(F("  TIA/AMP/ROUTE ON|OFF : Output flow control (refer to docs)"));
 }
 
@@ -548,15 +554,34 @@ void loop() {
     return;
   }
 
-  if (up.startsWith("CAL")){
+  if (up.startsWith("SETCAL")){
     up.remove(0, 3);
     up.trim();
-    //float calValue = up.toFloat();
+    float calValue = up.toFloat();
+    EEPROM.write(10,calValue);
+    Serial.print(F("Calibration value set to: "));
+    Serial.println(calValue);
     //setVoltage(static_cast<uint16_t>(calValue));
     return;
   }
 
-  if (up.startsWith("MEASLOCAL")) {
+  if (up.startsWith("MEASURE_EXTERNAL")){
+    if (local){
+      setGpio(PIN_AMPLIFIER_SEL, "OFF", "AMP"); 
+      setGpio(PIN_TIA_SELECT, "OFF", "TIA");
+      setGpio(PIN_OUTPUT_ROUTER, "ON", "ROUTE");
+      local = false;
+    } 
+    return;
+  }
+
+  if (up.startsWith("MEASURE_LOCAL")) {
+    if (!local){
+      setGpio(PIN_AMPLIFIER_SEL, "ON", "AMP"); 
+      setGpio(PIN_TIA_SELECT, "ON", "TIA");
+      setGpio(PIN_OUTPUT_ROUTER, "OFF", "ROUTE");
+      local = true;
+    }
     unsigned long starttime = millis();
     int16_t ADCVALS[100];
     for (uint8_t idx = 0; idx <= 99; idx++) {
@@ -571,7 +596,7 @@ void loop() {
     for (uint8_t idx = 0; idx <= 99; idx++) {
       float zeroed = ADCVALS[idx] - 16499;
       float volts = zeroed * ADS112C04_LSB_VOLTS;
-      float nanoAmps = -1 * volts / 20000000 * 1000000000;
+      float nanoAmps = calValue*-1 * volts / 20000000 * 1000000000;
       Serial.println(nanoAmps);
     }
     unsigned long timeelapsed = endtime - starttime;
