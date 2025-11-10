@@ -111,7 +111,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.data = np.full((10, 10), np.nan)
         self.ref_matrix: Optional[np.ndarray] = None
         self.ref_path: Optional[Path] = None
+        self.ref_matrix2: Optional[np.ndarray] = None
+        self.ref_path2: Optional[Path] = None
         self.math_mode: str = "none"  # none|divide|subtract
+        self.math_mode2: str = "none"
         self.math_eps: float = 1e-12
         self.save_processed: bool = False
         self.inactive_channels: List[int] = []
@@ -280,8 +283,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.btn_export_heatmap.clicked.connect(self._export_heatmap)
         self.ui.btn_export_hist.clicked.connect(self._export_histogram)
 
-        self.ui.btn_load_ref.clicked.connect(self._load_reference_csv)
-        self.ui.combo_math.currentIndexChanged.connect(self._math_mode_changed)
+        self.ui.btn_load_ref.clicked.connect(lambda: self._load_reference_csv(slot=1))
+        if hasattr(self.ui, "btn_load_ref2"):
+            self.ui.btn_load_ref2.clicked.connect(
+                lambda: self._load_reference_csv(slot=2)
+            )
+        self.ui.combo_math.currentIndexChanged.connect(
+            lambda idx: self._math_mode_changed(1, idx)
+        )
+        if hasattr(self.ui, "combo_math2"):
+            self.ui.combo_math2.currentIndexChanged.connect(
+                lambda idx: self._math_mode_changed(2, idx)
+            )
         self.ui.check_save_processed.toggled.connect(
             lambda b: setattr(self, "save_processed", bool(b))
         )
@@ -1094,7 +1107,10 @@ class MainWindow(QtWidgets.QMainWindow):
             "acquisition": asdict(acquisition),
             "pixel_spec_text": self.ui.edit_pixel_spec.text(),
             "math": {
-                "mode": self.math_mode,
+                "mode_primary": self.math_mode,
+                "mode_secondary": self.math_mode2,
+                "reference_primary": str(self.ref_path or ""),
+                "reference_secondary": str(self.ref_path2 or ""),
                 "epsilon": self.math_eps,
                 "save_processed": self.save_processed,
             },
@@ -1488,7 +1504,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_statusbar(text=message)
 
     # ---------------------- math/ref ----------------------
-    def _load_reference_csv(self):
+    def _load_reference_csv(self, slot: int = 1):
         fname, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Load Reference CSV",
@@ -1506,43 +1522,71 @@ class MainWindow(QtWidgets.QMainWindow):
                     raise ValueError(
                         f"Reference must be 10×10 (or 100 values). Got {arr.shape}."
                     )
-            self.ref_matrix = arr
-            self.ref_path = Path(fname)
-            self.ui.lbl_ref_info.setText(
-                f"{Path(fname).name}  [{arr.shape[0]}×{arr.shape[1]}]"
-            )
+            path = Path(fname)
+            label = f"{path.name}  [{arr.shape[0]}×{arr.shape[1]}]"
+            if slot == 2:
+                self.ref_matrix2 = arr
+                self.ref_path2 = path
+                if hasattr(self.ui, "lbl_ref2_info"):
+                    self.ui.lbl_ref2_info.setText(label)
+            else:
+                self.ref_matrix = arr
+                self.ref_path = path
+                self.ui.lbl_ref_info.setText(label)
             self._update_plots()
         except Exception as e:
-            self.ref_matrix = None
-            self.ref_path = None
-            self.ui.lbl_ref_info.setText("(none)")
+            if slot == 2:
+                self.ref_matrix2 = None
+                self.ref_path2 = None
+                if hasattr(self.ui, "lbl_ref2_info"):
+                    self.ui.lbl_ref2_info.setText("(none)")
+            else:
+                self.ref_matrix = None
+                self.ref_path = None
+                self.ui.lbl_ref_info.setText("(none)")
             QtWidgets.QMessageBox.critical(
                 self, "Reference CSV", f"Failed to load: {e}"
             )
 
-    def _math_mode_changed(self, _index: int):
-        text = self.ui.combo_math.currentText().lower()
+    def _math_mode_changed(self, slot: int, _index: int):
+        combo = self.ui.combo_math if slot == 1 else getattr(self.ui, "combo_math2", None)
+        if combo is None:
+            return
+        text = combo.currentText().lower()
         if text.startswith("divide"):
-            self.math_mode = "divide"
+            mode = "divide"
         elif text.startswith("subtract"):
-            self.math_mode = "subtract"
+            mode = "subtract"
         else:
-            self.math_mode = "none"
+            mode = "none"
+        if slot == 2:
+            self.math_mode2 = mode
+        else:
+            self.math_mode = mode
         self._update_plots()
 
     def _apply_math(self, data: np.ndarray) -> np.ndarray:
-        if self.math_mode == "none" or self.ref_matrix is None:
+        result = np.array(data, copy=True)
+        result = self._apply_reference_operation(result, self.ref_matrix, self.math_mode)
+        result = self._apply_reference_operation(result, self.ref_matrix2, self.math_mode2)
+        return result
+
+    def _apply_reference_operation(
+        self, data: np.ndarray, ref_matrix: Optional[np.ndarray], mode: str
+    ) -> np.ndarray:
+        if mode == "none" or ref_matrix is None:
             return data
-        ref = self.ref_matrix
+        ref = np.array(ref_matrix, copy=False)
+        result = np.array(data, copy=True)
         with np.errstate(divide="ignore", invalid="ignore"):
-            if self.math_mode == "divide":
+            if mode == "divide":
                 denom = ref + self.math_eps
-                out = np.divide(data, denom, where=~np.isnan(data))
+                np.divide(result, denom, out=result, where=~np.isnan(data))
             else:  # subtract
-                out = data - ref
+                result = result - ref
         mask_nan = np.isnan(data)
-        out = np.where(mask_nan, np.nan, out)
-        return out
+        result = np.where(mask_nan, np.nan, result)
+        return result
 
     # ---------------------- plotting ----------------------
     def _on_plot_selected(self, index: int):

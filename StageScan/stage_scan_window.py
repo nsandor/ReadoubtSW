@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import json
+import logging
 import math
+import re
 import time
-from dataclasses import dataclass
-from typing import List, Optional, Sequence
+from dataclasses import dataclass, asdict
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.colors import Normalize
+from matplotlib.colors import LogNorm, Normalize
 from matplotlib.figure import Figure
 from PySide6 import QtCore, QtWidgets, QtGui
 
@@ -56,6 +61,8 @@ class StageScanWorker(QtCore.QObject):
         geometry: StageGeometry,
         serpentine: bool,
         pixel_mask: np.ndarray,
+        tile_row_slice: Optional[slice] = None,
+        tile_col_slice: Optional[slice] = None,
         pixels: Sequence[int],
         inactive_channels: Sequence[int],
         switch,
@@ -70,7 +77,7 @@ class StageScanWorker(QtCore.QObject):
         self._acq = acquisition
         self._geometry = geometry
         self._serpentine = serpentine
-        self._pixel_mask = pixel_mask
+        self._pixel_mask = np.asarray(pixel_mask, dtype=bool)
         self._pixels = list(pixels)
         self._inactive = set(int(p) for p in inactive_channels)
         self._switch = switch
@@ -80,7 +87,21 @@ class StageScanWorker(QtCore.QObject):
         self._cols = geometry.columns()
         self._step_x = geometry.sensor_width_mm
         self._step_y = geometry.sensor_height_mm
-        self._composite = np.full((self._rows * 10, self._cols * 10), np.nan)
+        (
+            self._tile_row_slice,
+            self._tile_col_slice,
+        ) = self._resolve_tile_slices(
+            self._pixel_mask, tile_row_slice, tile_col_slice
+        )
+        self._tile_rows = max(
+            1, self._tile_row_slice.stop - self._tile_row_slice.start
+        )
+        self._tile_cols = max(
+            1, self._tile_col_slice.stop - self._tile_col_slice.start
+        )
+        self._composite = np.full(
+            (self._rows * self._tile_rows, self._cols * self._tile_cols), np.nan
+        )
         self._stop = False
         self._start_time = 0.0
         self._manual_stage_move = bool(manual_stage_move)
@@ -230,9 +251,10 @@ class StageScanWorker(QtCore.QObject):
         return frame
 
     def _insert_frame(self, row: int, col: int, frame: np.ndarray) -> None:
-        r0 = row * 10
-        c0 = col * 10
-        self._composite[r0 : r0 + 10, c0 : c0 + 10] = frame
+        r0 = row * self._tile_rows
+        c0 = col * self._tile_cols
+        tile = frame[self._tile_row_slice, self._tile_col_slice]
+        self._composite[r0 : r0 + self._tile_rows, c0 : c0 + self._tile_cols] = tile
 
     def _configure_instruments(self) -> None:
         if not self._acq.use_local_readout:
@@ -295,6 +317,50 @@ class StageScanWorker(QtCore.QObject):
     def _sleep(seconds: float) -> None:
         QtCore.QThread.msleep(int(max(0.0, seconds) * 1000))
 
+    @staticmethod
+    def _resolve_tile_slices(
+        mask: np.ndarray,
+        row_slice: Optional[slice],
+        col_slice: Optional[slice],
+    ) -> Tuple[slice, slice]:
+        default_row, default_col = StageScanWorker._mask_bounds(mask)
+        resolved_row = StageScanWorker._normalize_slice(
+            row_slice or default_row, mask.shape[0]
+        )
+        resolved_col = StageScanWorker._normalize_slice(
+            col_slice or default_col, mask.shape[1]
+        )
+        return resolved_row, resolved_col
+
+    @staticmethod
+    def _mask_bounds(mask: np.ndarray) -> Tuple[slice, slice]:
+        row_indices = np.where(np.any(mask, axis=1))[0]
+        col_indices = np.where(np.any(mask, axis=0))[0]
+        return (
+            StageScanWorker._build_slice(row_indices, mask.shape[0]),
+            StageScanWorker._build_slice(col_indices, mask.shape[1]),
+        )
+
+    @staticmethod
+    def _build_slice(indices: np.ndarray, size: int) -> slice:
+        if indices.size == 0:
+            return slice(0, size)
+        start = int(np.min(indices))
+        stop = int(np.max(indices)) + 1
+        start = max(0, min(size, start))
+        stop = max(start + 1, min(size, stop))
+        return slice(start, stop)
+
+    @staticmethod
+    def _normalize_slice(candidate: slice, size: int) -> slice:
+        start = candidate.start if candidate.start is not None else 0
+        stop = candidate.stop if candidate.stop is not None else size
+        start = max(0, min(size, int(start)))
+        stop = max(0, min(size, int(stop)))
+        if stop <= start:
+            return slice(0, size)
+        return slice(start, stop)
+
     def _await_manual_stage(self, row: int, col: int, x: float, y: float) -> bool:
         self._manual_mutex.lock()
         try:
@@ -354,13 +420,30 @@ class StageScanWindow(QtWidgets.QMainWindow):
         self._composite = np.full((10, 10), np.nan)
         self._active_rows = 1
         self._active_cols = 1
+        self._tile_rows = 10
+        self._tile_cols = 10
+        self._tile_row_slice = slice(0, 10)
+        self._tile_col_slice = slice(0, 10)
+        self._last_pixel_mask = np.ones((10, 10), dtype=bool)
         self._rotation_angles: List[float] = [0.0]
         self._rotation_results: List[Optional[np.ndarray]] = []
         self._view_rotation_index = 0
         self._current_rotation_index = 0
         self._manual_waiting_for_stage = False
         self._manual_pending_text = ""
+        self._mirror_tile_x = False
+        self._mirror_tile_y = False
+        self._stage_autosave_enabled = bool(getattr(self._main, "autosave_enabled", True))
+        self._stage_save_processed = True
+        self._stage_output_folder = Path(getattr(self._main, "output_folder", Path.cwd()))
+        self._stage_run_folder: Optional[Path] = None
+        self._stage_data_dir: Optional[Path] = None
+        self._stage_heatmap_dir: Optional[Path] = None
+        self._active_scan_label = self._default_scan_label()
+        self._active_geometry: Optional[StageGeometry] = None
+        self._active_acquisition: Optional[AcquisitionSettings] = None
         self._build_ui()
+        self._connect_main_heatmap_controls()
         self._update_manual_stage_controls()
         self._update_geometry_preview()
         self._stage_status_timer = QtCore.QTimer(self)
@@ -386,6 +469,8 @@ class StageScanWindow(QtWidgets.QMainWindow):
 
         controls_layout.addWidget(self._build_dimension_group())
         controls_layout.addWidget(self._build_stage_group())
+        controls_layout.addWidget(self._build_tile_orientation_group())
+        controls_layout.addWidget(self._build_output_group())
 
         self.status_label = QtWidgets.QLabel("Stage ready.")
         controls_layout.addWidget(self.status_label)
@@ -543,6 +628,117 @@ class StageScanWindow(QtWidgets.QMainWindow):
 
         return box
 
+    def _build_tile_orientation_group(self) -> QtWidgets.QGroupBox:
+        box = QtWidgets.QGroupBox("Tile Orientation")
+        layout = QtWidgets.QVBoxLayout(box)
+        self.check_mirror_x = QtWidgets.QCheckBox("Mirror tiles in X (left/right)")
+        self.check_mirror_x.setToolTip("Flip each tile horizontally before stitching.")
+        self.check_mirror_y = QtWidgets.QCheckBox("Mirror tiles in Y (up/down)")
+        self.check_mirror_y.setToolTip("Flip each tile vertically before stitching.")
+        layout.addWidget(self.check_mirror_x)
+        layout.addWidget(self.check_mirror_y)
+        self.check_mirror_x.toggled.connect(self._update_mirror_flags)
+        self.check_mirror_y.toggled.connect(self._update_mirror_flags)
+        self._update_mirror_flags()
+        return box
+
+    def _update_mirror_flags(self) -> None:
+        self._mirror_tile_x = bool(
+            getattr(self, "check_mirror_x", None)
+            and self.check_mirror_x.isChecked()
+        )
+        self._mirror_tile_y = bool(
+            getattr(self, "check_mirror_y", None)
+            and self.check_mirror_y.isChecked()
+        )
+        if hasattr(self, "_heatmap"):
+            self._update_heatmap()
+
+    def _build_output_group(self) -> QtWidgets.QGroupBox:
+        box = QtWidgets.QGroupBox("Output")
+        form = QtWidgets.QFormLayout(box)
+        form.setLabelAlignment(QtCore.Qt.AlignLeft)
+
+        self.check_stage_autosave = QtWidgets.QCheckBox("Autosave stage scan results")
+        self.check_stage_autosave.setChecked(self._stage_autosave_enabled)
+        self.check_stage_autosave.toggled.connect(self._update_output_controls)
+        form.addRow(self.check_stage_autosave)
+
+        folder_row = QtWidgets.QHBoxLayout()
+        self.edit_stage_output = QtWidgets.QLineEdit(str(self._stage_output_folder))
+        self.edit_stage_output.setPlaceholderText("Directory for stage runs")
+        folder_row.addWidget(self.edit_stage_output, 1)
+        self.btn_stage_output = QtWidgets.QPushButton("Browse…")
+        self.btn_stage_output.clicked.connect(self._select_output_folder)
+        folder_row.addWidget(self.btn_stage_output)
+        folder_widget = QtWidgets.QWidget()
+        folder_widget.setLayout(folder_row)
+        form.addRow("Folder:", folder_widget)
+
+        self.edit_stage_label = QtWidgets.QLineEdit(self._active_scan_label)
+        form.addRow("Scan label:", self.edit_stage_label)
+
+        self.check_stage_save_processed = QtWidgets.QCheckBox(
+            "Save processed CSV (apply reference math)"
+        )
+        self.check_stage_save_processed.setChecked(self._stage_save_processed)
+        self.check_stage_save_processed.toggled.connect(
+            lambda checked: setattr(self, "_stage_save_processed", bool(checked))
+        )
+        form.addRow(self.check_stage_save_processed)
+
+        self._output_group = box
+        self._update_output_controls()
+        return box
+
+    def _select_output_folder(self) -> None:
+        start_dir = str(self._stage_output_folder)
+        folder = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Select Stage Output Folder", start_dir
+        )
+        if not folder:
+            return
+        path = Path(folder)
+        self._stage_output_folder = path
+        if hasattr(self, "edit_stage_output"):
+            self.edit_stage_output.setText(str(path))
+
+    def _update_output_controls(self) -> None:
+        autosave = bool(
+            getattr(self, "check_stage_autosave", None)
+            and self.check_stage_autosave.isChecked()
+        )
+        running = self._worker is not None
+        self._stage_autosave_enabled = autosave
+        editable = bool(autosave and not running)
+        for widget in (
+            getattr(self, "edit_stage_output", None),
+            getattr(self, "btn_stage_output", None),
+            getattr(self, "edit_stage_label", None),
+        ):
+            if widget:
+                widget.setEnabled(editable)
+        if hasattr(self, "check_stage_save_processed"):
+            self.check_stage_save_processed.setEnabled(not running)
+
+    def _main_has_capability(self, name: str) -> bool:
+        func = getattr(self._main, name, None)
+        if callable(func):
+            try:
+                return bool(func())
+            except Exception:
+                return False
+        return False
+
+    def _dummy_stage_active(self) -> bool:
+        flag = getattr(self._main, "dummy_stage_enabled", None)
+        if callable(flag):
+            try:
+                return bool(flag())
+            except Exception:
+                return False
+        return False
+
     def _manual_stage_enabled(self) -> bool:
         return bool(
             getattr(self, "check_manual_stage", None)
@@ -688,14 +884,66 @@ class StageScanWindow(QtWidgets.QMainWindow):
         self._current_rotation_index = 0
         self._manual_waiting_for_stage = False
         self._manual_pending_text = ""
+        self._update_mirror_flags()
+        label_text = (
+            self.edit_stage_label.text().strip()
+            if hasattr(self, "edit_stage_label")
+            else ""
+        )
+        if not label_text:
+            label_text = self._default_scan_label()
+            if hasattr(self, "edit_stage_label"):
+                self.edit_stage_label.setText(label_text)
+        self._active_scan_label = label_text
+        self._stage_autosave_enabled = bool(
+            getattr(self, "check_stage_autosave", None)
+            and self.check_stage_autosave.isChecked()
+        )
+        self._stage_save_processed = bool(
+            getattr(self, "check_stage_save_processed", None)
+            and self.check_stage_save_processed.isChecked()
+        )
 
-        self._composite = np.full((rows * 10, cols * 10), np.nan)
+        self._active_geometry = geometry
+        self._active_acquisition = acquisition
+
+        pixel_mask = self._build_pixel_mask(acquisition.pixels)
+        self._last_pixel_mask = np.array(pixel_mask, copy=True)
+        (
+            row_slice,
+            col_slice,
+        ) = self._pixel_slices_from_mask(self._last_pixel_mask)
+        self._tile_row_slice = row_slice
+        self._tile_col_slice = col_slice
+        self._tile_rows = max(1, row_slice.stop - row_slice.start)
+        self._tile_cols = max(1, col_slice.stop - col_slice.start)
+        self._composite = np.full(
+            (rows * self._tile_rows, cols * self._tile_cols), np.nan
+        )
         self._active_rows, self._active_cols = rows, cols
         self._update_heatmap()
         self._set_rotation_scrub_enabled(False)
         self._update_eta_label(0.0)
-
-        pixel_mask = self._build_pixel_mask(acquisition.pixels)
+        if self._stage_autosave_enabled:
+            try:
+                self._stage_output_folder = self._resolve_output_folder()
+                run_folder = self._ensure_stage_run_folder(force_new=True)
+                self._write_stage_metadata(
+                    acquisition, geometry, rotation_angles, pixel_mask
+                )
+                self._append_log(
+                    f"Autosave enabled – stage results will be saved to {run_folder}."
+                )
+            except Exception as exc:
+                QtWidgets.QMessageBox.critical(
+                    self, "Output Folder", f"Failed to prepare output: {exc}"
+                )
+                self._worker = None
+                return
+        else:
+            self._stage_run_folder = None
+            self._stage_data_dir = None
+            self._stage_heatmap_dir = None
         bias_device = (
             None if acquisition.use_local_bias else getattr(self._main, "bias_sm", None)
         )
@@ -708,6 +956,8 @@ class StageScanWindow(QtWidgets.QMainWindow):
             geometry=geometry,
             serpentine=self.serpentine.isChecked(),
             pixel_mask=pixel_mask,
+            tile_row_slice=row_slice,
+            tile_col_slice=col_slice,
             pixels=acquisition.pixels,
             inactive_channels=self._main.inactive_channels or [],
             switch=self._main.switch,
@@ -814,6 +1064,7 @@ class StageScanWindow(QtWidgets.QMainWindow):
         data = np.array(array, copy=True)
         if 0 <= index < len(self._rotation_results):
             self._rotation_results[index] = data
+        self._save_rotation_result(index, angle, data)
         self._append_log(
             f"Rotation {index + 1}/{len(self._rotation_angles)} at {angle:.1f}° completed."
         )
@@ -891,26 +1142,18 @@ class StageScanWindow(QtWidgets.QMainWindow):
         self.rotation_info_label.setText(text)
 
     def _update_heatmap(self) -> None:
-        data = self._composite
-        valid = data[np.isfinite(data)]
-        if valid.size:
-            vmin = float(np.nanmin(valid))
-            vmax = float(np.nanmax(valid))
-            if vmin == vmax:
-                if vmin == 0.0:
-                    vmin, vmax = -1e-12, 1e-12
-                else:
-                    vmin *= 0.9
-                    vmax *= 1.1
-        else:
-            vmin, vmax = 1e-12, 1e-9
-        self._heatmap.set_data(data)
-        self._heatmap.set_norm(Normalize(vmin=vmin, vmax=vmax))
+        display, norm, cmap_name, label = self._prepare_display_payload(self._composite)
+        self._heatmap.set_data(display)
+        self._heatmap.set_cmap(cmap_name)
+        self._heatmap.set_norm(norm)
+        self.cbar.set_label(label)
+        self.cbar.update_normal(self._heatmap)
         angle = 0.0
         if 0 <= self._view_rotation_index < len(self._rotation_angles):
             angle = self._rotation_angles[self._view_rotation_index]
         self.ax.set_title(
-            f"Mosaic ({self._active_cols*10}x{self._active_rows*10} pixels) – {angle:.1f}°"
+            f"Mosaic ({max(1, self._active_cols*self._tile_cols)}x"
+            f"{max(1, self._active_rows*self._tile_rows)} pixels) – {angle:.1f}°"
         )
         self.canvas.draw_idle()
 
@@ -926,6 +1169,7 @@ class StageScanWindow(QtWidgets.QMainWindow):
             self._set_rotation_scrub_enabled(False)
         self.check_manual_stage.setEnabled(not running)
         self._update_manual_stage_controls()
+        self._update_output_controls()
 
     def _build_pixel_mask(self, pixels: Sequence[int]) -> np.ndarray:
         mask = np.zeros((10, 10), dtype=bool)
@@ -938,6 +1182,397 @@ class StageScanWindow(QtWidgets.QMainWindow):
             if 0 <= r < 10 and 0 <= c < 10:
                 mask[r, c] = False
         return mask
+
+    def _pixel_slices_from_mask(self, mask: np.ndarray) -> Tuple[slice, slice]:
+        row_indices = np.where(np.any(mask, axis=1))[0]
+        col_indices = np.where(np.any(mask, axis=0))[0]
+        return (
+            self._slice_from_indices(row_indices, mask.shape[0]),
+            self._slice_from_indices(col_indices, mask.shape[1]),
+        )
+
+    @staticmethod
+    def _slice_from_indices(indices: np.ndarray, size: int) -> slice:
+        if indices.size == 0:
+            return slice(0, size)
+        start = int(np.min(indices))
+        stop = int(np.max(indices)) + 1
+        start = max(0, min(size, start))
+        stop = max(start + 1, min(size, stop))
+        return slice(start, stop)
+
+    @staticmethod
+    def _pixel_indices_from_mask(mask: np.ndarray) -> List[int]:
+        rows, cols = mask.shape
+        indices: List[int] = []
+        for r in range(rows):
+            for c in range(cols):
+                if mask[r, c]:
+                    indices.append(r * cols + c + 1)
+        return indices
+
+    def _prepare_display_payload(
+        self, data: np.ndarray
+    ) -> Tuple[np.ndarray, Normalize, str, str]:
+        processed = self._apply_reference_math(data)
+        processed = self._apply_tile_mirror(processed)
+        units, scale = self._heatmap_unit_scale()
+        display = processed * scale
+        cmap_widget = self._ui_widget("combo_colormap")
+        cmap_name = cmap_widget.currentText() if cmap_widget else "inferno"
+        log_widget = self._ui_widget("check_log_scale_heatmap")
+        use_log = bool(log_widget.isChecked()) if log_widget else False
+        auto_widget = self._ui_widget("check_auto_scale")
+        auto_scale = True if auto_widget is None else bool(auto_widget.isChecked())
+        valid = display[np.isfinite(display)]
+        vmin: float
+        vmax: float
+        if valid.size == 0:
+            vmin, vmax = 1e-12, 1e-9
+        elif auto_scale:
+            vmin = float(np.nanmin(valid))
+            vmax = float(np.nanmax(valid))
+            if vmin == vmax:
+                delta = max(abs(vmin) * 0.1, 1e-12)
+                vmin -= delta
+                vmax += delta
+        else:
+            try:
+                vmin_widget = self._ui_widget("edit_vmin")
+                vmax_widget = self._ui_widget("edit_vmax")
+                vmin = float(vmin_widget.text()) if vmin_widget else 1e-12
+                vmax = float(vmax_widget.text()) if vmax_widget else 1e-9
+            except Exception:
+                vmin, vmax = 1e-12, 1e-9
+        if not np.isfinite(vmin) or not np.isfinite(vmax):
+            vmin, vmax = 1e-12, 1e-9
+        if vmin == vmax:
+            vmax = vmin + max(abs(vmin) * 0.1, 1e-12)
+        label = f"Current ({units})"
+        if use_log:
+            vmin = max(vmin, 1e-12)
+            vmax = max(vmax, vmin * 1.01)
+            norm = LogNorm(vmin=vmin, vmax=vmax)
+        else:
+            norm = Normalize(vmin=vmin, vmax=vmax)
+        return display, norm, cmap_name, label
+
+    def _apply_reference_math(self, data: np.ndarray) -> np.ndarray:
+        result = np.array(data, copy=True)
+        eps = float(getattr(self._main, "math_eps", 1e-12))
+        for ref, mode in self._reference_sources():
+            result = self._apply_single_reference(result, ref, mode, eps)
+        return result
+
+    def _reference_sources(self) -> List[Tuple[np.ndarray, str]]:
+        sources: List[Tuple[np.ndarray, str]] = []
+        ref1 = getattr(self._main, "ref_matrix", None)
+        mode1 = getattr(self._main, "math_mode", "none")
+        if ref1 is not None and mode1 != "none":
+            sources.append((np.asarray(ref1), str(mode1)))
+        ref2 = getattr(self._main, "ref_matrix2", None)
+        mode2 = getattr(self._main, "math_mode2", "none")
+        if ref2 is not None and mode2 != "none":
+            sources.append((np.asarray(ref2), str(mode2)))
+        return sources
+
+    def _apply_single_reference(
+        self, data: np.ndarray, ref_matrix: np.ndarray, mode: str, eps: float
+    ) -> np.ndarray:
+        tile_ref = ref_matrix[self._tile_row_slice, self._tile_col_slice]
+        if tile_ref.size == 0:
+            return data
+        rows = max(1, math.ceil(data.shape[0] / tile_ref.shape[0]))
+        cols = max(1, math.ceil(data.shape[1] / tile_ref.shape[1]))
+        ref_mosaic = np.tile(tile_ref, (rows, cols))[: data.shape[0], : data.shape[1]]
+        result = np.array(data, copy=True)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            if mode == "divide":
+                denom = ref_mosaic + eps
+                np.divide(result, denom, out=result, where=~np.isnan(data))
+            else:
+                result = result - ref_mosaic
+        mask = np.isnan(data)
+        result[mask] = np.nan
+        return result
+
+    def _apply_tile_mirror(
+        self, data: np.ndarray, *, mirror_x: Optional[bool] = None, mirror_y: Optional[bool] = None
+    ) -> np.ndarray:
+        mx = self._mirror_tile_x if mirror_x is None else bool(mirror_x)
+        my = self._mirror_tile_y if mirror_y is None else bool(mirror_y)
+        if not mx and not my:
+            return np.array(data, copy=True)
+        arr = np.array(data, copy=True)
+        tile_rows = max(1, self._tile_rows)
+        tile_cols = max(1, self._tile_cols)
+        total_rows = max(1, self._active_rows)
+        total_cols = max(1, self._active_cols)
+        for row in range(total_rows):
+            r0 = row * tile_rows
+            r1 = r0 + tile_rows
+            if r1 > arr.shape[0]:
+                break
+            for col in range(total_cols):
+                c0 = col * tile_cols
+                c1 = c0 + tile_cols
+                if c1 > arr.shape[1]:
+                    break
+                tile = arr[r0:r1, c0:c1]
+                if mx:
+                    tile = tile[:, ::-1]
+                if my:
+                    tile = tile[::-1, :]
+                arr[r0:r1, c0:c1] = tile
+        return arr
+
+    def _heatmap_unit_scale(self) -> Tuple[str, float]:
+        widget = self._ui_widget("combo_units")
+        units = widget.currentText() if widget else "A"
+        factors = {"pA": 1e12, "nA": 1e9, "\u00B5A": 1e6, "mA": 1e3}
+        return units, factors.get(units, 1.0)
+
+    def _ui_widget(self, name: str):
+        ui = getattr(self._main, "ui", None)
+        return getattr(ui, name, None) if ui else None
+
+    def _default_scan_label(self) -> str:
+        collector = getattr(self._main, "_collect_experiment_name", None)
+        base = "scan"
+        if callable(collector):
+            try:
+                base = collector() or "scan"
+            except Exception:
+                base = "scan"
+        if not base.lower().endswith("stage"):
+            return f"{base}_stage"
+        return base
+
+    def _sanitize_scan_label(self, text: str) -> str:
+        slug = re.sub(r"[^A-Za-z0-9_-]+", "_", text.strip())
+        return slug or "stage_scan"
+
+    def _resolve_output_folder(self) -> Path:
+        text = (
+            self.edit_stage_output.text().strip()
+            if hasattr(self, "edit_stage_output")
+            else ""
+        )
+        if text:
+            return Path(text).expanduser()
+        return self._stage_output_folder
+
+    def _ensure_stage_run_folder(self, *, force_new: bool = False) -> Path:
+        if (
+            self._stage_run_folder
+            and self._stage_run_folder.exists()
+            and not force_new
+        ):
+            return self._stage_run_folder
+        root = self._stage_output_folder
+        root.mkdir(parents=True, exist_ok=True)
+        slug = self._sanitize_scan_label(self._active_scan_label)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_folder = root / f"{slug}_stage_{timestamp}"
+        data_dir = run_folder / "data"
+        heatmap_dir = run_folder / "heatmaps"
+        for folder in (run_folder, data_dir, heatmap_dir):
+            folder.mkdir(parents=True, exist_ok=True)
+        self._stage_run_folder = run_folder
+        self._stage_data_dir = data_dir
+        self._stage_heatmap_dir = heatmap_dir
+        logging.info("Prepared stage scan folder at %s", run_folder)
+        return run_folder
+
+    def _write_stage_metadata(
+        self,
+        acquisition: AcquisitionSettings,
+        geometry: StageGeometry,
+        rotation_angles: Sequence[float],
+        pixel_mask: np.ndarray,
+    ) -> None:
+        if not self._stage_run_folder:
+            return
+        metadata = {
+            "stage_scan": {
+                "label": self._active_scan_label,
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "serpentine": bool(self.serpentine.isChecked()),
+                "manual_stage_move": bool(self._manual_stage_enabled()),
+                "rotation_angles_deg": [float(a) for a in rotation_angles],
+                "sections": {"rows": geometry.rows(), "cols": geometry.columns()},
+                "geometry_mm": asdict(geometry),
+                "tile_shape": [self._tile_rows, self._tile_cols],
+                "tile_orientation": {
+                    "mirror_x": bool(self._mirror_tile_x),
+                    "mirror_y": bool(self._mirror_tile_y),
+                },
+                "pixel_indices": self._pixel_indices_from_mask(pixel_mask),
+            },
+            "acquisition": asdict(acquisition),
+            "reference": {
+                "primary": {
+                    "path": str(getattr(self._main, "ref_path", "") or ""),
+                    "mode": getattr(self._main, "math_mode", "none"),
+                },
+                "secondary": {
+                    "path": str(getattr(self._main, "ref_path2", "") or ""),
+                    "mode": getattr(self._main, "math_mode2", "none"),
+                },
+                "epsilon": float(getattr(self._main, "math_eps", 1e-12)),
+                "save_processed": bool(self._stage_save_processed),
+            },
+            "devices": {
+                "read_smu": getattr(self._main, "read_sm_idn", "Read SMU: (unknown)"),
+                "bias_smu": getattr(self._main, "bias_sm_idn", "Bias SMU: (unknown)"),
+                "switch": getattr(self._main, "switch_idn", "Switch: (unknown)"),
+            },
+            "output": {
+                "root": str(self._stage_run_folder),
+                "data": str(self._stage_data_dir or self._stage_run_folder),
+                "heatmaps": str(self._stage_heatmap_dir or self._stage_run_folder),
+            },
+        }
+        meta_path = self._stage_run_folder / "metadata.json"
+        with meta_path.open("w", encoding="utf-8") as fh:
+            json.dump(metadata, fh, indent=2)
+        logging.info("Wrote stage scan metadata to %s", meta_path)
+
+    def _rotation_base_name(self, index: int, angle: float) -> str:
+        slug = self._sanitize_scan_label(self._active_scan_label)
+        angle_str = f"{angle:.1f}".replace("-", "m").replace(".", "p")
+        return f"{slug}_rot{index + 1:03d}_{angle_str}"
+
+    def _save_rotation_result(self, index: int, angle: float, data: np.ndarray) -> None:
+        if not (
+            self._stage_autosave_enabled
+            and self._stage_data_dir
+            and self._stage_run_folder
+        ):
+            return
+        base = self._rotation_base_name(index, angle)
+        metadata = self._build_rotation_metadata(index, angle)
+        data_dir = self._stage_data_dir or self._stage_run_folder
+        raw_path = data_dir / f"{base}_raw.csv"
+        raw_arr = np.array(data, copy=True)
+        raw_meta = dict(metadata)
+        raw_meta["data_type"] = "raw"
+        save_kwargs = dict(delimiter=",", fmt="%.6e")
+        self._write_stage_csv(raw_path, raw_arr, raw_meta, save_kwargs, index, angle, "raw")
+        if self._stage_save_processed:
+            processed = self._apply_reference_math(data)
+            processed = self._apply_tile_mirror(processed)
+            proc_path = data_dir / f"{base}_processed.csv"
+            proc_meta = dict(metadata)
+            proc_meta["data_type"] = "processed"
+            self._write_stage_csv(
+                proc_path, processed, proc_meta, save_kwargs, index, angle, "processed"
+            )
+        try:
+            self._save_rotation_heatmap(base, data, index, angle)
+        except Exception as exc:
+            logging.warning("Failed to save rotation %s heatmap: %s", index + 1, exc)
+
+    def _build_rotation_metadata(self, index: int, angle: float) -> dict:
+        return {
+            "rotation_index": int(index),
+            "rotation_angle_deg": float(angle),
+            "label": self._active_scan_label,
+            "tile_shape": [self._tile_rows, self._tile_cols],
+            "tile_orientation": {
+                "mirror_x": bool(self._mirror_tile_x),
+                "mirror_y": bool(self._mirror_tile_y),
+            },
+            "sections": {"rows": self._active_rows, "cols": self._active_cols},
+            "pixel_indices": self._pixel_indices_from_mask(self._last_pixel_mask),
+            "references": {
+                "primary": {
+                    "path": str(getattr(self._main, "ref_path", "") or ""),
+                    "mode": getattr(self._main, "math_mode", "none"),
+                },
+                "secondary": {
+                    "path": str(getattr(self._main, "ref_path2", "") or ""),
+                    "mode": getattr(self._main, "math_mode2", "none"),
+                },
+                "epsilon": float(getattr(self._main, "math_eps", 1e-12)),
+            },
+            "save_processed": bool(self._stage_save_processed),
+        }
+
+    def _write_stage_csv(
+        self,
+        path: Path,
+        array: np.ndarray,
+        metadata: dict,
+        save_kwargs: dict,
+        index: int,
+        angle: float,
+        mode: str,
+    ) -> None:
+        header = self._format_csv_metadata(metadata)
+        kwargs = dict(save_kwargs)
+        if header:
+            kwargs["header"] = header
+            kwargs["comments"] = "# "
+        try:
+            np.savetxt(path, array, **kwargs)
+            self._append_log(
+                f"Saved rotation {index + 1} ({angle:.1f}°) {mode} data to {path}"
+            )
+        except Exception as exc:
+            logging.warning("Failed to save rotation %s %s CSV: %s", index + 1, mode, exc)
+
+    def _save_rotation_heatmap(
+        self, base_name: str, data: np.ndarray, index: int, angle: float
+    ) -> None:
+        if not self._stage_heatmap_dir:
+            return
+        path = self._stage_heatmap_dir / f"{base_name}_heatmap.png"
+        display, norm, cmap_name, label = self._prepare_display_payload(data)
+        fig = Figure(figsize=(5, 4))
+        ax = fig.add_subplot(111)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        heat = ax.imshow(display, cmap=cmap_name, norm=norm, interpolation="nearest")
+        fig.colorbar(heat, ax=ax, fraction=0.046, pad=0.04, label=label)
+        ax.set_title(
+            f"{self._active_scan_label} – rotation {index + 1} ({angle:.1f}°)"
+        )
+        fig.savefig(path, dpi=300, bbox_inches="tight")
+        fig.clear()
+        logging.info("Saved stage rotation heatmap to %s", path)
+
+    @staticmethod
+    def _format_csv_metadata(metadata: dict) -> str:
+        try:
+            payload = json.dumps(metadata, separators=(",", ":"), sort_keys=True)
+            return f"READOUT_METADATA {payload}"
+        except Exception as exc:
+            logging.warning("Failed to encode stage CSV metadata: %s", exc)
+            return ""
+
+    def _connect_main_heatmap_controls(self) -> None:
+        ui = getattr(self._main, "ui", None)
+        if not ui:
+            return
+        mappings = [
+            ("combo_units", "currentTextChanged"),
+            ("combo_colormap", "currentTextChanged"),
+            ("check_log_scale_heatmap", "toggled"),
+            ("check_auto_scale", "toggled"),
+            ("edit_vmin", "editingFinished"),
+            ("edit_vmax", "editingFinished"),
+            ("combo_math", "currentIndexChanged"),
+            ("btn_load_ref", "clicked"),
+        ]
+        for attr, signal_name in mappings:
+            widget = getattr(ui, attr, None)
+            if not widget:
+                continue
+            signal = getattr(widget, signal_name, None)
+            if not signal:
+                continue
+            signal.connect(self._update_heatmap)
 
     def _update_geometry_preview(self) -> None:
         geometry = self._current_geometry()

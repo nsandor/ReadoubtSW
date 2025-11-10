@@ -713,11 +713,11 @@
                     </attribute>
                     <layout class="QFormLayout" name="formLayout">
                      <item row="0" column="0">
-                      <widget class="QLabel" name="label_ref">
-                       <property name="text">
-                        <string>Reference:</string>
-                       </property>
-                      </widget>
+                     <widget class="QLabel" name="label_ref">
+                      <property name="text">
+                       <string>Reference:</string>
+                      </property>
+                     </widget>
                      </item>
                      <item row="0" column="1">
                       <layout class="QHBoxLayout" name="ref_row">
@@ -745,7 +745,7 @@
                       </widget>
                      </item>
                      <item row="1" column="1">
-                      <widget class="QComboBox" name="combo_math">
+                     <widget class="QComboBox" name="combo_math">
                        <item>
                         <property name="text">
                          <string>None</string>
@@ -761,22 +761,73 @@
                          <string>Subtract (live - ref)</string>
                         </property>
                        </item>
-                      </widget>
-                     </item>
-                     <item row="2" column="0">
-                      <widget class="QLabel" name="label_save_proc">
+                     </widget>
+                    </item>
+                    <item row="2" column="0">
+                     <widget class="QLabel" name="label_ref2">
+                      <property name="text">
+                       <string>Reference 2:</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item row="2" column="1">
+                     <layout class="QHBoxLayout" name="ref_row2">
+                      <item>
+                       <widget class="QPushButton" name="btn_load_ref2">
+                        <property name="text">
+                         <string>Load Ref CSV…</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QLabel" name="lbl_ref2_info">
+                        <property name="text">
+                         <string>(none)</string>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </item>
+                    <item row="3" column="0">
+                     <widget class="QLabel" name="label_op2">
+                      <property name="text">
+                       <string>Operation 2:</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item row="3" column="1">
+                     <widget class="QComboBox" name="combo_math2">
+                      <item>
                        <property name="text">
-                        <string/>
+                        <string>None</string>
                        </property>
-                      </widget>
-                     </item>
-                     <item row="2" column="1">
-                      <widget class="QCheckBox" name="check_save_processed">
+                      </item>
+                      <item>
                        <property name="text">
-                        <string>Save processed CSVs instead of raw</string>
+                        <string>Divide (live / ref)</string>
                        </property>
-                      </widget>
-                     </item>
+                      </item>
+                      <item>
+                       <property name="text">
+                        <string>Subtract (live - ref)</string>
+                       </property>
+                      </item>
+                     </widget>
+                    </item>
+                    <item row="4" column="0">
+                     <widget class="QLabel" name="label_save_proc">
+                      <property name="text">
+                       <string/>
+                      </property>
+                     </widget>
+                    </item>
+                    <item row="4" column="1">
+                     <widget class="QCheckBox" name="check_save_processed">
+                      <property name="text">
+                       <string>Save processed CSVs instead of raw</string>
+                      </property>
+                     </widget>
+                    </item>
                     </layout>
                    </widget>
                   </widget>

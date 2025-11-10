@@ -497,15 +497,48 @@ class Ui_MainWindow(object):
 
         self.formLayout.setWidget(1, QFormLayout.ItemRole.FieldRole, self.combo_math)
 
+        self.label_ref2 = QLabel(self.tab)
+        self.label_ref2.setObjectName(u"label_ref2")
+
+        self.formLayout.setWidget(2, QFormLayout.ItemRole.LabelRole, self.label_ref2)
+
+        self.ref_row2 = QHBoxLayout()
+        self.ref_row2.setObjectName(u"ref_row2")
+        self.btn_load_ref2 = QPushButton(self.tab)
+        self.btn_load_ref2.setObjectName(u"btn_load_ref2")
+
+        self.ref_row2.addWidget(self.btn_load_ref2)
+
+        self.lbl_ref2_info = QLabel(self.tab)
+        self.lbl_ref2_info.setObjectName(u"lbl_ref2_info")
+
+        self.ref_row2.addWidget(self.lbl_ref2_info)
+
+
+        self.formLayout.setLayout(2, QFormLayout.ItemRole.FieldRole, self.ref_row2)
+
+        self.label_op2 = QLabel(self.tab)
+        self.label_op2.setObjectName(u"label_op2")
+
+        self.formLayout.setWidget(3, QFormLayout.ItemRole.LabelRole, self.label_op2)
+
+        self.combo_math2 = QComboBox(self.tab)
+        self.combo_math2.addItem("")
+        self.combo_math2.addItem("")
+        self.combo_math2.addItem("")
+        self.combo_math2.setObjectName(u"combo_math2")
+
+        self.formLayout.setWidget(3, QFormLayout.ItemRole.FieldRole, self.combo_math2)
+
         self.label_save_proc = QLabel(self.tab)
         self.label_save_proc.setObjectName(u"label_save_proc")
 
-        self.formLayout.setWidget(2, QFormLayout.ItemRole.LabelRole, self.label_save_proc)
+        self.formLayout.setWidget(4, QFormLayout.ItemRole.LabelRole, self.label_save_proc)
 
         self.check_save_processed = QCheckBox(self.tab)
         self.check_save_processed.setObjectName(u"check_save_processed")
 
-        self.formLayout.setWidget(2, QFormLayout.ItemRole.FieldRole, self.check_save_processed)
+        self.formLayout.setWidget(4, QFormLayout.ItemRole.FieldRole, self.check_save_processed)
 
         self.plot_settings_stack.addTab(self.tab, "")
 
@@ -715,6 +748,13 @@ class Ui_MainWindow(object):
         self.combo_math.setItemText(0, QCoreApplication.translate("MainWindow", u"None", None))
         self.combo_math.setItemText(1, QCoreApplication.translate("MainWindow", u"Divide (live / ref)", None))
         self.combo_math.setItemText(2, QCoreApplication.translate("MainWindow", u"Subtract (live - ref)", None))
+        self.label_ref2.setText(QCoreApplication.translate("MainWindow", u"Reference 2:", None))
+        self.btn_load_ref2.setText(QCoreApplication.translate("MainWindow", u"Load Ref CSV\u2026", None))
+        self.lbl_ref2_info.setText(QCoreApplication.translate("MainWindow", u"(none)", None))
+        self.label_op2.setText(QCoreApplication.translate("MainWindow", u"Operation 2:", None))
+        self.combo_math2.setItemText(0, QCoreApplication.translate("MainWindow", u"None", None))
+        self.combo_math2.setItemText(1, QCoreApplication.translate("MainWindow", u"Divide (live / ref)", None))
+        self.combo_math2.setItemText(2, QCoreApplication.translate("MainWindow", u"Subtract (live - ref)", None))
 
         self.label_save_proc.setText("")
         self.check_save_processed.setText(QCoreApplication.translate("MainWindow", u"Save processed CSVs instead of raw", None))
