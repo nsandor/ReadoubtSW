@@ -65,7 +65,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.action_open_stage = QtGui.QAction("Open Stage Scan Window", self)
         self.menu_stage.addAction(self.action_open_stage)
         self.action_open_stage.triggered.connect(self._open_stage_scan_window)
-        self._wrap_settings_panel_with_scroll()
 
         # ---- paths/state ----
         self.output_folder: Path = Path.home()
@@ -271,27 +270,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._on_measurement_type_changed(
             self.ui.Measurement_type_combobox.currentIndex()
         )
-
-    def _wrap_settings_panel_with_scroll(self):
-        if getattr(self.ui, "settings_scroll_area", None):
-            return
-        layout = getattr(self.ui, "horizontalLayout", None)
-        frame_widget = getattr(self.ui, "frame", None)
-        if layout is None or frame_widget is None:
-            return
-        index = layout.indexOf(frame_widget)
-        if index < 0:
-            return
-        layout.removeWidget(frame_widget)
-        scroll = QtWidgets.QScrollArea(self.ui.frame_2)
-        scroll.setObjectName("settings_scroll_area")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setWidget(frame_widget)
-        layout.insertWidget(index, scroll)
-        self.ui.settings_scroll_area = scroll
 
     @QtCore.Slot()
     def _handle_run_abort_clicked(self):

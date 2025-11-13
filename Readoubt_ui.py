@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ################################################################################
-## Form generated from reading UI file 'Readoubt.ui'
+## Form generated from reading UI file 'Readoubt_ui.ui'
 ##
 ## Created by: Qt User Interface Compiler version 6.9.3
 ##
@@ -53,9 +53,14 @@ class Ui_MainWindow(object):
         self.frame.setFrameShadow(QFrame.Shadow.Raised)
         self.verticalLayout = QVBoxLayout(self.frame)
         self.verticalLayout.setObjectName(u"verticalLayout")
-        self.scan_settings_box = QGroupBox(self.frame)
+        self.tabWidget = QTabWidget(self.frame)
+        self.tabWidget.setObjectName(u"tabWidget")
+        self.tab_2 = QWidget()
+        self.tab_2.setObjectName(u"tab_2")
+        self.verticalLayout_2 = QVBoxLayout(self.tab_2)
+        self.verticalLayout_2.setObjectName(u"verticalLayout_2")
+        self.scan_settings_box = QGroupBox(self.tab_2)
         self.scan_settings_box.setObjectName(u"scan_settings_box")
-        self.scan_settings_box.setMinimumSize(QSize(0, 0))
         self.formLayout_2 = QFormLayout(self.scan_settings_box)
         self.formLayout_2.setObjectName(u"formLayout_2")
         self.Measurement_type_label = QLabel(self.scan_settings_box)
@@ -105,11 +110,6 @@ class Ui_MainWindow(object):
 
         self.formLayout_2.setWidget(3, QFormLayout.ItemRole.FieldRole, self.loop_delay)
 
-        self.label_voltage_start = QLabel(self.scan_settings_box)
-        self.label_voltage_start.setObjectName(u"label_voltage_start")
-
-        self.formLayout_2.setWidget(4, QFormLayout.ItemRole.LabelRole, self.label_voltage_start)
-
         self.spin_voltage_start = QDoubleSpinBox(self.scan_settings_box)
         self.spin_voltage_start.setObjectName(u"spin_voltage_start")
         self.spin_voltage_start.setDecimals(3)
@@ -143,7 +143,7 @@ class Ui_MainWindow(object):
         self.spin_voltage_step = QDoubleSpinBox(self.scan_settings_box)
         self.spin_voltage_step.setObjectName(u"spin_voltage_step")
         self.spin_voltage_step.setDecimals(3)
-        self.spin_voltage_step.setMinimum(0.000100000000000)
+        self.spin_voltage_step.setMinimum(0.000000000000000)
         self.spin_voltage_step.setMaximum(200.000000000000000)
         self.spin_voltage_step.setSingleStep(0.100000000000000)
         self.spin_voltage_step.setValue(0.100000000000000)
@@ -178,16 +178,6 @@ class Ui_MainWindow(object):
 
         self.formLayout_2.setWidget(8, QFormLayout.ItemRole.FieldRole, self.spin_nplc)
 
-        self.integration_time_label = QLabel(self.scan_settings_box)
-        self.integration_time_label.setObjectName(u"integration_time_label")
-
-        self.formLayout_2.setWidget(9, QFormLayout.ItemRole.LabelRole, self.integration_time_label)
-
-        self.integration_time = QLabel(self.scan_settings_box)
-        self.integration_time.setObjectName(u"integration_time")
-
-        self.formLayout_2.setWidget(9, QFormLayout.ItemRole.FieldRole, self.integration_time)
-
         self.label_nsamp = QLabel(self.scan_settings_box)
         self.label_nsamp.setObjectName(u"label_nsamp")
 
@@ -218,10 +208,30 @@ class Ui_MainWindow(object):
 
         self.formLayout_2.setWidget(12, QFormLayout.ItemRole.FieldRole, self.edit_current_range)
 
+        self.integration_time_label = QLabel(self.scan_settings_box)
+        self.integration_time_label.setObjectName(u"integration_time_label")
 
-        self.verticalLayout.addWidget(self.scan_settings_box)
+        self.formLayout_2.setWidget(9, QFormLayout.ItemRole.LabelRole, self.integration_time_label)
 
-        self.save_box = QGroupBox(self.frame)
+        self.integration_time = QLabel(self.scan_settings_box)
+        self.integration_time.setObjectName(u"integration_time")
+
+        self.formLayout_2.setWidget(9, QFormLayout.ItemRole.FieldRole, self.integration_time)
+
+        self.label_voltage_start = QLabel(self.scan_settings_box)
+        self.label_voltage_start.setObjectName(u"label_voltage_start")
+
+        self.formLayout_2.setWidget(4, QFormLayout.ItemRole.LabelRole, self.label_voltage_start)
+
+
+        self.verticalLayout_2.addWidget(self.scan_settings_box)
+
+        self.tabWidget.addTab(self.tab_2, "")
+        self.tab_3 = QWidget()
+        self.tab_3.setObjectName(u"tab_3")
+        self.verticalLayout_3 = QVBoxLayout(self.tab_3)
+        self.verticalLayout_3.setObjectName(u"verticalLayout_3")
+        self.save_box = QGroupBox(self.tab_3)
         self.save_box.setObjectName(u"save_box")
         self.save_layout = QFormLayout(self.save_box)
         self.save_layout.setObjectName(u"save_layout")
@@ -262,9 +272,14 @@ class Ui_MainWindow(object):
         self.save_layout.setWidget(2, QFormLayout.ItemRole.LabelRole, self.label_autosave)
 
 
-        self.verticalLayout.addWidget(self.save_box)
+        self.verticalLayout_3.addWidget(self.save_box)
 
-        self.groupBox = QGroupBox(self.frame)
+        self.tabWidget.addTab(self.tab_3, "")
+        self.tab_4 = QWidget()
+        self.tab_4.setObjectName(u"tab_4")
+        self.verticalLayout_4 = QVBoxLayout(self.tab_4)
+        self.verticalLayout_4.setObjectName(u"verticalLayout_4")
+        self.groupBox = QGroupBox(self.tab_4)
         self.groupBox.setObjectName(u"groupBox")
         self.gridLayout = QGridLayout(self.groupBox)
         self.gridLayout.setObjectName(u"gridLayout")
@@ -283,6 +298,20 @@ class Ui_MainWindow(object):
         self.edit_heatmap_title.setObjectName(u"edit_heatmap_title")
 
         self.heatmap_settings_layout.setWidget(0, QFormLayout.ItemRole.FieldRole, self.edit_heatmap_title)
+
+        self.label_units = QLabel(self.plot_settings_stackPage1)
+        self.label_units.setObjectName(u"label_units")
+
+        self.heatmap_settings_layout.setWidget(1, QFormLayout.ItemRole.LabelRole, self.label_units)
+
+        self.combo_units = QComboBox(self.plot_settings_stackPage1)
+        self.combo_units.addItem("")
+        self.combo_units.addItem("")
+        self.combo_units.addItem("")
+        self.combo_units.addItem("")
+        self.combo_units.setObjectName(u"combo_units")
+
+        self.heatmap_settings_layout.setWidget(1, QFormLayout.ItemRole.FieldRole, self.combo_units)
 
         self.label_cmap = QLabel(self.plot_settings_stackPage1)
         self.label_cmap.setObjectName(u"label_cmap")
@@ -375,20 +404,6 @@ class Ui_MainWindow(object):
         self.btn_export_heatmap.setObjectName(u"btn_export_heatmap")
 
         self.heatmap_settings_layout.setWidget(7, QFormLayout.ItemRole.FieldRole, self.btn_export_heatmap)
-
-        self.label_units = QLabel(self.plot_settings_stackPage1)
-        self.label_units.setObjectName(u"label_units")
-
-        self.heatmap_settings_layout.setWidget(1, QFormLayout.ItemRole.LabelRole, self.label_units)
-
-        self.combo_units = QComboBox(self.plot_settings_stackPage1)
-        self.combo_units.addItem("")
-        self.combo_units.addItem("")
-        self.combo_units.addItem("")
-        self.combo_units.addItem("")
-        self.combo_units.setObjectName(u"combo_units")
-
-        self.heatmap_settings_layout.setWidget(1, QFormLayout.ItemRole.FieldRole, self.combo_units)
 
         self.plot_settings_stack.addTab(self.plot_settings_stackPage1, "")
         self.plot_settings_stackPage2 = QWidget()
@@ -491,7 +506,11 @@ class Ui_MainWindow(object):
         self.gridLayout.addWidget(self.plot_settings_stack, 0, 0, 1, 1)
 
 
-        self.verticalLayout.addWidget(self.groupBox)
+        self.verticalLayout_4.addWidget(self.groupBox)
+
+        self.tabWidget.addTab(self.tab_4, "")
+
+        self.verticalLayout.addWidget(self.tabWidget)
 
 
         self.horizontalLayout.addWidget(self.frame)
@@ -513,11 +532,6 @@ class Ui_MainWindow(object):
 
         self.plot_stack = QStackedWidget(self.plotArea)
         self.plot_stack.setObjectName(u"plot_stack")
-        sizePolicy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.plot_stack.sizePolicy().hasHeightForWidth())
-        self.plot_stack.setSizePolicy(sizePolicy)
         self.plot_stack.setMinimumSize(QSize(500, 500))
         self.heatmap_page = QWidget()
         self.heatmap_page.setObjectName(u"heatmap_page")
@@ -578,15 +592,15 @@ class Ui_MainWindow(object):
         self.verticalLayout_0.addLayout(self.run_layout)
 
         MainWindow.setCentralWidget(self.centralwidget)
-        self.statusbar = QStatusBar(MainWindow)
-        self.statusbar.setObjectName(u"statusbar")
-        MainWindow.setStatusBar(self.statusbar)
         self.menuBar = QMenuBar(MainWindow)
         self.menuBar.setObjectName(u"menuBar")
         self.menuBar.setGeometry(QRect(0, 0, 1074, 22))
         self.menuHardware = QMenu(self.menuBar)
         self.menuHardware.setObjectName(u"menuHardware")
         MainWindow.setMenuBar(self.menuBar)
+        self.statusbar = QStatusBar(MainWindow)
+        self.statusbar.setObjectName(u"statusbar")
+        MainWindow.setStatusBar(self.statusbar)
 
         self.menuBar.addAction(self.menuHardware.menuAction())
         self.menuHardware.addAction(self.actionConnect_SMU)
@@ -595,6 +609,7 @@ class Ui_MainWindow(object):
 
         self.retranslateUi(MainWindow)
 
+        self.tabWidget.setCurrentIndex(0)
         self.plot_settings_stack.setCurrentIndex(0)
         self.combo_units.setCurrentIndex(1)
         self.plot_stack.setCurrentIndex(0)
@@ -621,26 +636,34 @@ class Ui_MainWindow(object):
         self.label_loops.setText(QCoreApplication.translate("MainWindow", u"Loops:", None))
         self.loop_delay_label.setText(QCoreApplication.translate("MainWindow", u"Delay Between Loops (s)", None))
         self.loop_delay.setText(QCoreApplication.translate("MainWindow", u"1", None))
-        self.label_voltage_start.setText(QCoreApplication.translate("MainWindow", u"Start Voltage (V):", None))
         self.label_voltage_end.setText(QCoreApplication.translate("MainWindow", u"End Voltage (V):", None))
         self.label_voltage_step.setText(QCoreApplication.translate("MainWindow", u"Step Size (V):", None))
         self.label_voltage_settle.setText(QCoreApplication.translate("MainWindow", u"Settling Time (s):", None))
         self.label_nplc.setText(QCoreApplication.translate("MainWindow", u"NPLC:", None))
-        self.integration_time_label.setText(QCoreApplication.translate("MainWindow", u"Integration Time:", None))
-        self.integration_time.setText(QCoreApplication.translate("MainWindow", u"-", None))
         self.label_nsamp.setText(QCoreApplication.translate("MainWindow", u"Samples / pixel:", None))
         self.check_auto_current_range.setText(QCoreApplication.translate("MainWindow", u"Auto current range", None))
         self.label_manual_rng.setText(QCoreApplication.translate("MainWindow", u"Manual range (A):", None))
         self.edit_current_range.setText(QCoreApplication.translate("MainWindow", u"1e-7", None))
+        self.integration_time_label.setText(QCoreApplication.translate("MainWindow", u"Integration Time:", None))
+        self.integration_time.setText(QCoreApplication.translate("MainWindow", u"-", None))
+        self.label_voltage_start.setText(QCoreApplication.translate("MainWindow", u"Start Voltage (V):", None))
+        self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_2), QCoreApplication.translate("MainWindow", u"Scan Settings", None))
         self.save_box.setTitle(QCoreApplication.translate("MainWindow", u"Output & Saving", None))
         self.label_exp.setText(QCoreApplication.translate("MainWindow", u"Experiment Name:", None))
         self.edit_exp_name.setText(QCoreApplication.translate("MainWindow", u"MyExperiment", None))
         self.label_out.setText(QCoreApplication.translate("MainWindow", u"Output Folder:", None))
         self.btn_browse_folder.setText(QCoreApplication.translate("MainWindow", u"Browse\u2026", None))
         self.label_autosave.setText("")
+        self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_3), QCoreApplication.translate("MainWindow", u"Output Settings", None))
         self.groupBox.setTitle(QCoreApplication.translate("MainWindow", u"Visualization Settings", None))
         self.label_hm_title.setText(QCoreApplication.translate("MainWindow", u"Title:", None))
         self.edit_heatmap_title.setText(QCoreApplication.translate("MainWindow", u"Photodiode Current", None))
+        self.label_units.setText(QCoreApplication.translate("MainWindow", u"Units", None))
+        self.combo_units.setItemText(0, QCoreApplication.translate("MainWindow", u"pA", None))
+        self.combo_units.setItemText(1, QCoreApplication.translate("MainWindow", u"nA", None))
+        self.combo_units.setItemText(2, QCoreApplication.translate("MainWindow", u"uA", None))
+        self.combo_units.setItemText(3, QCoreApplication.translate("MainWindow", u"mA", None))
+
         self.label_cmap.setText(QCoreApplication.translate("MainWindow", u"Colormap:", None))
         self.combo_colormap.setItemText(0, QCoreApplication.translate("MainWindow", u"inferno", None))
         self.combo_colormap.setItemText(1, QCoreApplication.translate("MainWindow", u"viridis", None))
@@ -663,12 +686,6 @@ class Ui_MainWindow(object):
         self.check_show_values.setText(QCoreApplication.translate("MainWindow", u"Show Pixel Values", None))
         self.label_export_hm.setText("")
         self.btn_export_heatmap.setText(QCoreApplication.translate("MainWindow", u"Export Heatmap PNG\u2026", None))
-        self.label_units.setText(QCoreApplication.translate("MainWindow", u"Units", None))
-        self.combo_units.setItemText(0, QCoreApplication.translate("MainWindow", u"pA", None))
-        self.combo_units.setItemText(1, QCoreApplication.translate("MainWindow", u"nA", None))
-        self.combo_units.setItemText(2, QCoreApplication.translate("MainWindow", u"uA", None))
-        self.combo_units.setItemText(3, QCoreApplication.translate("MainWindow", u"mA", None))
-
         self.plot_settings_stack.setTabText(self.plot_settings_stack.indexOf(self.plot_settings_stackPage1), QCoreApplication.translate("MainWindow", u"Heatmap", None))
         self.label_hist_title.setText(QCoreApplication.translate("MainWindow", u"Title:", None))
         self.edit_hist_title.setText(QCoreApplication.translate("MainWindow", u"Current Distribution", None))
@@ -689,6 +706,7 @@ class Ui_MainWindow(object):
         self.label_save_proc.setText("")
         self.check_save_processed.setText(QCoreApplication.translate("MainWindow", u"Save processed CSVs instead of raw", None))
         self.plot_settings_stack.setTabText(self.plot_settings_stack.indexOf(self.tab), QCoreApplication.translate("MainWindow", u"Math", None))
+        self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_4), QCoreApplication.translate("MainWindow", u"Visualization", None))
         self.plot_selector.setItemText(0, QCoreApplication.translate("MainWindow", u"Heatmap", None))
         self.plot_selector.setItemText(1, QCoreApplication.translate("MainWindow", u"Histogram", None))
 
@@ -697,3 +715,4 @@ class Ui_MainWindow(object):
         self.btn_pause_resume.setText(QCoreApplication.translate("MainWindow", u"Pause", None))
         self.menuHardware.setTitle(QCoreApplication.translate("MainWindow", u"Hardware", None))
     # retranslateUi
+

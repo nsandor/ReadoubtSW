@@ -7,7 +7,7 @@ import serial
 class SwitchBoard:
     """USB 100:1 switch with ACK sync."""
 
-    def __init__(self, port: str, baud: int = 115200, timeout: float = 5):
+    def __init__(self, port: str, baud: int = 115200, timeout: float = 2):
         if serial is None:
             raise RuntimeError("pyserial not available")
         self.ser = serial.Serial(port, baudrate=baud, timeout=timeout)
@@ -87,8 +87,10 @@ class SwitchBoard:
         return value
 
     def measure_local(self) -> Tuple[List[float], float]:
+        self.ser.flush()
         self.ser.write(b"MEASURE_LOCAL\n")
         floats: List[float] = []
+        self.ser.timeout = None
         attempts = 0
         while len(floats) < 101:
             line = self._readline()
