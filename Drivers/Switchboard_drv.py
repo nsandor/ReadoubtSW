@@ -60,6 +60,15 @@ class SwitchBoard:
         self.ser.write(f"{cmd}\n".encode())
         self._drain_lines(max_lines=2)
 
+    def set_settle_time(self, milliseconds: int) -> int:
+        value = max(0, int(milliseconds))
+        self.ser.write(f"SETTLE {value}\n".encode())
+        try:
+            self._readline()
+        except Exception:
+            pass
+        return value
+
     def set_local_voltage(self, voltage: float) -> float:
         value = float(voltage)
         if not (6.0 <= value <= 87.0):
@@ -111,6 +120,10 @@ class DummySwitchBoard:
 
     def set_led(self, enabled: bool):
         self._led_enabled = bool(enabled)
+
+    def set_settle_time(self, milliseconds: int) -> int:
+        value = max(0, int(milliseconds))
+        return value
 
     def set_local_voltage(self, voltage: float) -> float:
         self._last_voltage = float(voltage)

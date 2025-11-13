@@ -71,6 +71,7 @@ constexpr float ADS112C04_LSB_VOLTS = 0.000142;
 bool verbose = true;
 bool local = false;
 float calValue;
+int settleTime = 4; //ms
 /* ─── Low-level helpers (shift reg / LED matrix) ───────────────── */
 
 void clearRegister() {
@@ -579,6 +580,21 @@ void loop() {
     return;
   }
 
+  if (up.startsWith("SETTLE")){
+    up.remove(0,6);
+    up.trim();
+    int stime = strtol(up.c_str(),nullptr,10);
+    if (stime<0){
+      Serial.println(F("Settle time must be non-negative"));
+      return;
+    }
+    settleTime = stime;
+    Serial.print(F("Settle time set to: "));
+    Serial.print(settleTime);
+    Serial.println(F(" ms"));
+    return;
+  }
+
   if (up.startsWith("MEASURE_EXTERNAL")){
     if (local){
       setGpio(PIN_AMPLIFIER_SEL, "OFF", "AMP"); 
@@ -603,7 +619,7 @@ void loop() {
       uint8_t frame[FRAME_LEN];
       buildSwitchFrame(idx, frame);
       shiftFrameMSBFirst(frame, FRAME_LEN);
-      delay(4); //Settling time
+      delay(settleTime); //Settling time
       ads112c04_singleShotReadRaw(ADCVALS[idx]);
     }
     unsigned long endtime = millis();
@@ -626,7 +642,7 @@ void loop() {
     uint8_t frame[FRAME_LEN];
     buildSwitchFrame(idx, frame);
     shiftFrameMSBFirst(frame, FRAME_LEN);
-    delay(20);  // Allow some time for the switch to settle
+    delay(settleTime);  // Allow some time for the switch to settle
 
     if (verbose) {
       Serial.print(F("Switch "));

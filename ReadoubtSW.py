@@ -65,6 +65,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.action_open_stage = QtGui.QAction("Open Stage Scan Window", self)
         self.menu_stage.addAction(self.action_open_stage)
         self.action_open_stage.triggered.connect(self._open_stage_scan_window)
+        self._wrap_settings_panel_with_scroll()
 
         # ---- paths/state ----
         self.output_folder: Path = Path.home()
@@ -91,6 +92,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._voltage_control_widgets: List[QtWidgets.QWidget] = []
         self._loop_control_widgets: List[QtWidgets.QWidget] = []
         self._time_bias_widgets: List[QtWidgets.QWidget] = []
+        self._switch_settle_ms: int = 4
 
         # ---- instruments (dummy by default) ----
         self.sm = DummyKeithley2400()
@@ -270,6 +272,27 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ui.Measurement_type_combobox.currentIndex()
         )
 
+    def _wrap_settings_panel_with_scroll(self):
+        if getattr(self.ui, "settings_scroll_area", None):
+            return
+        layout = getattr(self.ui, "horizontalLayout", None)
+        frame_widget = getattr(self.ui, "frame", None)
+        if layout is None or frame_widget is None:
+            return
+        index = layout.indexOf(frame_widget)
+        if index < 0:
+            return
+        layout.removeWidget(frame_widget)
+        scroll = QtWidgets.QScrollArea(self.ui.frame_2)
+        scroll.setObjectName("settings_scroll_area")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(frame_widget)
+        layout.insertWidget(index, scroll)
+        self.ui.settings_scroll_area = scroll
+
     @QtCore.Slot()
     def _handle_run_abort_clicked(self):
         if self._worker:
@@ -332,6 +355,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.check_led_enable.setObjectName("check_led_enable")
         layout.addRow(self.ui.label_led_control, self.ui.check_led_enable)
 
+        self.ui.label_switch_settle = QtWidgets.QLabel("Routing settle (ms):")
+        self.ui.label_switch_settle.setObjectName("label_switch_settle")
+        self.ui.spin_switch_settle = QtWidgets.QSpinBox()
+        self.ui.spin_switch_settle.setObjectName("spin_switch_settle")
+        self.ui.spin_switch_settle.setRange(0, 5000)
+        self.ui.spin_switch_settle.setSingleStep(1)
+        self.ui.spin_switch_settle.setValue(self._switch_settle_ms)
+        layout.addRow(self.ui.label_switch_settle, self.ui.spin_switch_settle)
+
         idx = self.ui.verticalLayout.indexOf(self.ui.scan_settings_box)
         insert_pos = max(0, idx + 1)
         self.ui.verticalLayout.insertWidget(insert_pos, self.switch_options_box)
@@ -343,6 +375,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self._on_bias_source_changed
         )
         self.ui.check_led_enable.toggled.connect(self._handle_led_toggled)
+        self.ui.spin_switch_settle.valueChanged.connect(
+            self._on_switch_settle_changed
+        )
 
     def _init_loop_scrubber(self):
         container = QtWidgets.QWidget()
@@ -573,6 +608,25 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             self._set_led_checkbox(not checked)
 
+    def _on_switch_settle_changed(self, value: int):
+        value = max(0, int(value))
+        self._switch_settle_ms = value
+        if self._switch_connected():
+            self._apply_switch_settle_time(show_error=True)
+
+    def _apply_switch_settle_time(self, *, show_error: bool = False):
+        if not self._switch_connected():
+            return
+        try:
+            self.switch.set_settle_time(self._switch_settle_ms)
+        except Exception as exc:
+            logging.error(f"Failed to set switch settle time: {exc}")
+            if show_error:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Switch Settle Time",
+                    f"Failed to apply settle time:\n{exc}",
+                )
     def _on_readout_source_changed(self, index: int):
         if index == 1 and not self._switch_connected():
             QtWidgets.QMessageBox.warning(
@@ -1479,6 +1533,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 [int(x) for x in status.split(",") if x.strip()] if status else []
             )
             self._set_led_checkbox(True)
+            self._apply_switch_settle_time()
             QtWidgets.QMessageBox.information(
                 self, "Switch", f"Connected on {port}.\nID: {idn}"
             )
