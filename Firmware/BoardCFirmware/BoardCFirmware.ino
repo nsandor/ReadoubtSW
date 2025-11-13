@@ -357,6 +357,10 @@ void setup() {
   pinMode(PIN_SPI_CS, OUTPUT);
   digitalWrite(PIN_SPI_CS, HIGH);
   digitalWrite(PIN_LED_ENABLE, HIGH);
+  // Default to external readout
+  setGpio(PIN_AMPLIFIER_SEL, "OFF", "AMP"); 
+  setGpio(PIN_TIA_SELECT, "OFF", "TIA");
+  setGpio(PIN_OUTPUT_ROUTER, "ON", "ROUTE");
   //EEPROM.write(0,345);
   randomSeed(EEPROM.read(0));
   EEPROM.write(0,random(1000));

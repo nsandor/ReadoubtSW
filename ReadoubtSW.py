@@ -1395,7 +1395,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.inactive_channels = (
                 [int(x) for x in status.split(",") if x.strip()] if status else []
             )
-            self._set_led_checkbox(False)
+            self._set_led_checkbox(True)
             QtWidgets.QMessageBox.information(
                 self, "Switch", f"Connected on {port}.\nID: {idn}"
             )
