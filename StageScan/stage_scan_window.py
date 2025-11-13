@@ -37,6 +37,7 @@ class StageScanWorker(QtCore.QObject):
     progressChanged = QtCore.Signal(int)
     compositeUpdated = QtCore.Signal(int, object)
     etaUpdated = QtCore.Signal(float)
+    manualMoveRequested = QtCore.Signal(int, int, float, float)
     error = QtCore.Signal(str)
     finished = QtCore.Signal()
 
@@ -55,6 +56,7 @@ class StageScanWorker(QtCore.QObject):
         switch,
         read_smu,
         bias_sm,
+        manual_stage_move: bool = False,
     ) -> None:
         super().__init__()
         self._stage = stage
@@ -76,6 +78,10 @@ class StageScanWorker(QtCore.QObject):
         self._composite = np.full((self._rows * 10, self._cols * 10), np.nan)
         self._stop = False
         self._start_time = 0.0
+        self._manual_stage_move = bool(manual_stage_move)
+        self._manual_wait = QtCore.QWaitCondition()
+        self._manual_mutex = QtCore.QMutex()
+        self._manual_ready = False
 
     @QtCore.Slot()
     def run(self) -> None:
@@ -99,7 +105,8 @@ class StageScanWorker(QtCore.QObject):
                     raise RuntimeError(f"Rotation move failed: {exc}") from exc
                 self.rotationStarted.emit(rot_idx, float(angle))
                 try:
-                    self._stage.home()
+                    if not self._manual_stage_move:
+                        self._stage.home()
                 except Exception:
                     pass
                 self._composite.fill(np.nan)
@@ -116,10 +123,14 @@ class StageScanWorker(QtCore.QObject):
                             break
                         x = col * self._step_x
                         y = row * self._step_y
-                        try:
-                            self._stage.move_to(x, y)
-                        except Exception as exc:
-                            raise RuntimeError(f"Stage move failed: {exc}") from exc
+                        if self._manual_stage_move:
+                            if not self._await_manual_stage(row, col, x, y):
+                                break
+                        else:
+                            try:
+                                self._stage.move_to(x, y)
+                            except Exception as exc:
+                                raise RuntimeError(f"Stage move failed: {exc}") from exc
                         self.sectionStarted.emit(row, col, float(x), float(y))
                         frame = self._capture_tile()
                         self._insert_frame(row, col, frame)
@@ -138,6 +149,12 @@ class StageScanWorker(QtCore.QObject):
 
     def stop(self) -> None:
         self._stop = True
+        if self._manual_stage_move:
+            self._manual_mutex.lock()
+            try:
+                self._manual_wait.wakeAll()
+            finally:
+                self._manual_mutex.unlock()
 
     def _capture_tile(self) -> np.ndarray:
         loops = max(1, int(self._acq.loops))
@@ -273,6 +290,28 @@ class StageScanWorker(QtCore.QObject):
     def _sleep(seconds: float) -> None:
         QtCore.QThread.msleep(int(max(0.0, seconds) * 1000))
 
+    def _await_manual_stage(self, row: int, col: int, x: float, y: float) -> bool:
+        self._manual_mutex.lock()
+        try:
+            self._manual_ready = False
+            self.manualMoveRequested.emit(row, col, float(x), float(y))
+            while not self._manual_ready and not self._stop:
+                self._manual_wait.wait(self._manual_mutex)
+            return self._manual_ready and not self._stop
+        finally:
+            self._manual_mutex.unlock()
+
+    @QtCore.Slot()
+    def acknowledge_manual_move(self) -> None:
+        if not self._manual_stage_move:
+            return
+        self._manual_mutex.lock()
+        try:
+            self._manual_ready = True
+            self._manual_wait.wakeAll()
+        finally:
+            self._manual_mutex.unlock()
+
 
 class StageScanWindow(QtWidgets.QMainWindow):
     """Secondary window that orchestrates XY stage mosaics."""
@@ -291,7 +330,10 @@ class StageScanWindow(QtWidgets.QMainWindow):
         self._rotation_results: List[Optional[np.ndarray]] = []
         self._view_rotation_index = 0
         self._current_rotation_index = 0
+        self._manual_waiting_for_stage = False
+        self._manual_pending_text = ""
         self._build_ui()
+        self._update_manual_stage_controls()
         self._update_geometry_preview()
 
     # ------------------------------------------------------------------ UI setup
@@ -417,7 +459,69 @@ class StageScanWindow(QtWidgets.QMainWindow):
         rotation_widget.setLayout(rotation_row)
         layout.addWidget(rotation_widget)
 
+        self.check_manual_stage = QtWidgets.QCheckBox("Manual stage movement")
+        self.check_manual_stage.setToolTip(
+            "When enabled, the user moves the XY stage between tiles."
+        )
+        self.check_manual_stage.toggled.connect(self._update_manual_stage_controls)
+        layout.addWidget(self.check_manual_stage)
+
+        self.manual_prompt = QtWidgets.QLabel("")
+        self.manual_prompt.setWordWrap(True)
+        layout.addWidget(self.manual_prompt)
+
+        self.btn_manual_next = QtWidgets.QPushButton("Capture next tile")
+        self.btn_manual_next.clicked.connect(self._on_manual_next_clicked)
+        layout.addWidget(self.btn_manual_next)
+
+        self.manual_prompt.setVisible(False)
+        self.btn_manual_next.setVisible(False)
+        self.btn_manual_next.setEnabled(False)
+
         return box
+
+    def _manual_stage_enabled(self) -> bool:
+        return bool(
+            getattr(self, "check_manual_stage", None)
+            and self.check_manual_stage.isChecked()
+        )
+
+    def _update_manual_stage_controls(self) -> None:
+        if not hasattr(self, "manual_prompt"):
+            return
+        manual = self._manual_stage_enabled()
+        running = self._worker is not None
+        self.manual_prompt.setVisible(manual)
+        self.btn_manual_next.setVisible(manual)
+        if not manual:
+            self.manual_prompt.setText("")
+            self.btn_manual_next.setEnabled(False)
+            return
+        if not running:
+            self.manual_prompt.setText(
+                "Manual stage mode enabled. Start a scan to receive move prompts."
+            )
+            self.btn_manual_next.setEnabled(False)
+            return
+        if self._manual_waiting_for_stage:
+            self.manual_prompt.setText(self._manual_pending_text)
+            self.btn_manual_next.setEnabled(True)
+        else:
+            self.manual_prompt.setText("Capturing tile…")
+            self.btn_manual_next.setEnabled(False)
+
+    def _on_manual_next_clicked(self) -> None:
+        if not self._worker:
+            self.btn_manual_next.setEnabled(False)
+            return
+        self._manual_waiting_for_stage = False
+        self.manual_prompt.setText("Capturing tile…")
+        self.btn_manual_next.setEnabled(False)
+        QtCore.QMetaObject.invokeMethod(
+            self._worker,
+            "acknowledge_manual_move",
+            QtCore.Qt.QueuedConnection,
+        )
 
     def _build_rotation_scrub_group(self) -> QtWidgets.QGroupBox:
         box = QtWidgets.QGroupBox("Rotation Results")
@@ -540,6 +644,8 @@ class StageScanWindow(QtWidgets.QMainWindow):
         self._rotation_results = [None for _ in rotation_angles]
         self._view_rotation_index = 0
         self._current_rotation_index = 0
+        self._manual_waiting_for_stage = False
+        self._manual_pending_text = ""
 
         self._composite = np.full((rows * 10, cols * 10), np.nan)
         self._active_rows, self._active_cols = rows, cols
@@ -565,6 +671,7 @@ class StageScanWindow(QtWidgets.QMainWindow):
             switch=self._main.switch,
             read_smu=self._main.sm,
             bias_sm=bias_device,
+            manual_stage_move=self._manual_stage_enabled(),
         )
         self._thread = QtCore.QThread()
         self._worker.moveToThread(self._thread)
@@ -578,11 +685,17 @@ class StageScanWindow(QtWidgets.QMainWindow):
         self._worker.etaUpdated.connect(self._update_eta_label)
         self._worker.error.connect(self._handle_worker_error)
         self._worker.finished.connect(self._on_worker_finished)
+        if self._manual_stage_enabled():
+            self._worker.manualMoveRequested.connect(self._on_manual_move_requested)
 
         self._set_busy_state(True)
         self._append_log(
             f"Starting stage scan ({rows}x{cols} sections, {rows*cols} total tiles)."
         )
+        if self._manual_stage_enabled():
+            self._append_log(
+                "Manual stage movement enabled – waiting for user confirmation between tiles."
+            )
         self._thread.start()
 
     def _stop_stage_scan(self) -> None:
@@ -603,10 +716,25 @@ class StageScanWindow(QtWidgets.QMainWindow):
         )
         self._set_rotation_scrub_enabled(all_done)
         self._update_eta_label(0.0)
+        self._manual_waiting_for_stage = False
+        self._manual_pending_text = ""
+        self._update_manual_stage_controls()
 
     def _handle_worker_error(self, message: str) -> None:
         self._append_log(f"Error: {message}")
         QtWidgets.QMessageBox.critical(self, "Stage Scan", message)
+
+    def _on_manual_move_requested(self, row: int, col: int, x: float, y: float) -> None:
+        self._manual_waiting_for_stage = True
+        self._manual_pending_text = (
+            f"Move stage to section ({row+1}, {col+1}) at X={x:.2f} mm, Y={y:.2f} mm, "
+            "then click 'Capture next tile'."
+        )
+        self._append_log(
+            f"Awaiting manual move to section ({row+1}, {col+1}) "
+            f"(X={x:.2f} mm, Y={y:.2f} mm)."
+        )
+        self._update_manual_stage_controls()
 
     def _on_section_started(self, row: int, col: int, x: float, y: float) -> None:
         rot_total = max(1, len(self._rotation_angles))
@@ -754,6 +882,8 @@ class StageScanWindow(QtWidgets.QMainWindow):
         self.rotation_steps_spin.setEnabled(not running)
         if running:
             self._set_rotation_scrub_enabled(False)
+        self.check_manual_stage.setEnabled(not running)
+        self._update_manual_stage_controls()
 
     def _build_pixel_mask(self, pixels: Sequence[int]) -> np.ndarray:
         mask = np.zeros((10, 10), dtype=bool)
@@ -817,6 +947,8 @@ class StageScanWindow(QtWidgets.QMainWindow):
         return " ".join(parts)
 
     def _ensure_stage_connected(self) -> bool:
+        if self._manual_stage_enabled():
+            return True
         if self._stage.is_connected():
             return True
         QtWidgets.QMessageBox.warning(

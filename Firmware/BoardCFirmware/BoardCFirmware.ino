@@ -626,6 +626,7 @@ void loop() {
     uint8_t frame[FRAME_LEN];
     buildSwitchFrame(idx, frame);
     shiftFrameMSBFirst(frame, FRAME_LEN);
+    delay(20);  // Allow some time for the switch to settle
 
     if (verbose) {
       Serial.print(F("Switch "));
