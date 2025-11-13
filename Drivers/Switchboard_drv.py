@@ -86,9 +86,9 @@ class SwitchBoard:
         self._last_voltage = value
         return value
 
-    def measure_local(self) -> Tuple[List[float], float]:
+    def measure_local(self, n_samples) -> Tuple[List[float], float]:
         self.ser.flush()
-        self.ser.write(b"MEASURE_LOCAL\n")
+        self.ser.write(f"MEASURE_LOCAL {n_samples}\n".encode())
         floats: List[float] = []
         self.ser.timeout = None
         attempts = 0

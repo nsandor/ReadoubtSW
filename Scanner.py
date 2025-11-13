@@ -138,42 +138,23 @@ class ScanWorker(QtCore.QObject):
                 runtime_ms = None
                 loop_results = []
                 if self._use_local_readout:
-                    samples_taken = 0
                     runtime_total_ms = 0.0
-                    summed_currents = None
                     # Repeat full-board captures to honor samples/pixel for local readout.
-                    for sample_idx in range(self._n):
-                        while self._paused and not self._stop:
-                            QtCore.QThread.msleep(100)
-                        if self._stop:
-                            break
-                        try:
-                            currents_na, sample_runtime_ms = self._sw.measure_local()
-                        except Exception as e:
-                            logging.warning(f"Local measurement failed: {e}")
-                            self.deviceError.emit(f"Local measurement failed: {e}")
-                            raise
-                        arr = np.asarray(currents_na, dtype=float)
-                        summed_currents = (
-                            arr.copy() if summed_currents is None else summed_currents + arr
-                        )
-                        samples_taken += 1
-                        if sample_runtime_ms is not None:
-                            runtime_total_ms += float(sample_runtime_ms)
-                        if (
-                            sample_idx < self._n - 1
-                            and self._delay_s > 0
-                            and not self._stop
-                        ):
-                            self._sleep_with_stop(self._delay_s, allow_pause=True)
-                            if self._stop:
-                                break
+                    while self._paused and not self._stop:
+                        QtCore.QThread.msleep(100)
                     if self._stop:
                         break
-                    if samples_taken == 0 or summed_currents is None:
-                        continue
-                    avg_currents = summed_currents / float(samples_taken)
-                    runtime_ms = runtime_total_ms if samples_taken else None
+                    try:
+                        avg_currents, sample_runtime_ms = self._sw.measure_local(n_samples=self._n)
+                    except Exception as e:
+                        logging.warning(f"Local measurement failed: {e}")
+                        self.deviceError.emit(f"Local measurement failed: {e}")
+                        raise
+                    if sample_runtime_ms is not None:
+                        runtime_total_ms += float(sample_runtime_ms)
+                    if self._stop:
+                        break
+                    runtime_ms = runtime_total_ms
                     for p in self._pixels:
                         if self._stop:
                             break

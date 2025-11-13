@@ -606,6 +606,9 @@ void loop() {
   }
 
   if (up.startsWith("MEASURE_LOCAL")) {
+    up.remove(0,13);
+    up.trim();
+    n_samples = strtoi(up.c_str(),nullptr,10);
     if (!local){
       setGpio(PIN_AMPLIFIER_SEL, "ON", "AMP"); 
       setGpio(PIN_TIA_SELECT, "ON", "TIA");
@@ -620,7 +623,12 @@ void loop() {
       buildSwitchFrame(idx, frame);
       shiftFrameMSBFirst(frame, FRAME_LEN);
       delay(settleTime); //Settling time
-      ads112c04_singleShotReadRaw(ADCVALS[idx]);
+      for (int sample=0; sample<n_samples; sample++){
+        int16_t raw;
+        ads112c04_singleShotReadRaw(raw);
+        ADCVALS[idx] += raw;
+      }
+      ADCVALS[idx] /= n_samples;
     }
     unsigned long endtime = millis();
 
