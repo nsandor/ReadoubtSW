@@ -6,6 +6,9 @@ from PySide6 import QtCore
 from PySide6.QtCore import Signal
 
 
+DEVICE_LOGGER = logging.getLogger("readoubt.devices")
+
+
 class ScanWorker(QtCore.QObject):
     loopDataReady = Signal(int, object)
     loopStarted = Signal(int, object)
@@ -61,8 +64,16 @@ class ScanWorker(QtCore.QObject):
     @QtCore.Slot()
     def run(self):
         if not self._use_local_readout:
+            DEVICE_LOGGER.info(
+                "Configuring read SMU (NPLC=%s, auto_range=%s, range=%s)",
+                self._nplc,
+                self._auto_range,
+                self._current_range,
+            )
             try:
+                DEVICE_LOGGER.debug("Resetting read SMU before measurement")
                 self._sm.reset()
+                DEVICE_LOGGER.debug("Enabling read SMU source output")
                 self._sm.enable_source()
                 try:
                     self._sm.measure_current(
@@ -145,6 +156,10 @@ class ScanWorker(QtCore.QObject):
                     if self._stop:
                         break
                     try:
+                        DEVICE_LOGGER.info(
+                            "Switch board local measurement requested (%s samples/pixel)",
+                            self._n,
+                        )
                         avg_currents, sample_runtime_ms = self._sw.measure_local(n_samples=self._n)
                     except Exception as e:
                         logging.warning(f"Local measurement failed: {e}")
@@ -170,6 +185,11 @@ class ScanWorker(QtCore.QObject):
                         if self._stop:
                             break
                         try:
+                            DEVICE_LOGGER.debug(
+                                "Loop %s: routing pixel %s via switch board",
+                                loop_idx,
+                                p,
+                            )
                             self._sw.route(p)  # blocks until ACK
                         except Exception as e:
                             logging.warning(
@@ -217,6 +237,7 @@ class ScanWorker(QtCore.QObject):
         finally:
             try:
                 self._sm.disable_source()
+                DEVICE_LOGGER.debug("Read SMU source disabled after scan")
             except Exception:
                 pass
             if bias_mode and self._bias_sm and not self._use_local_bias:
@@ -224,13 +245,18 @@ class ScanWorker(QtCore.QObject):
                     self._bias_sm.source_voltage = 0.0
                     if hasattr(self._bias_sm, "disable_source"):
                         self._bias_sm.disable_source()
+                    DEVICE_LOGGER.debug("Bias SMU returned to 0 V and disabled")
                 except Exception:
                     pass
             self.finished.emit()
 
     def _apply_bias_voltage(self, voltage: float) -> float:
         if self._use_local_bias:
+            DEVICE_LOGGER.info(
+                "Switch board local bias set to %.3f V", float(voltage)
+            )
             return float(self._sw.set_local_voltage(voltage))
+        DEVICE_LOGGER.info("Bias SMU set to %.3f V", float(voltage))
         self._bias_sm.source_voltage = float(voltage)
         self._bias_sm.enable_source()
         try:

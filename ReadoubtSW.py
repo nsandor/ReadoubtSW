@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # main.py — Readout app with PySide6 UI (from pyside6-uic)
 
+import json
 import logging
 import re
 import sys
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -35,6 +37,28 @@ from Scanner import ScanWorker
 from ScannerWin.acquisition import AcquisitionSettings
 from Analysis.analysis_window import AnalysisWindow
 from StageScan.stage_scan_window import StageScanWindow
+
+
+APP_DIR = Path(__file__).resolve().parent
+LOG_FILE = APP_DIR / "ReadoubtSW.log"
+
+
+def _configure_logging():
+    log_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    handlers = [logging.StreamHandler()]
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(
+            RotatingFileHandler(LOG_FILE, maxBytes=2_000_000, backupCount=3)
+        )
+    except Exception:
+        pass
+    logging.basicConfig(level=logging.INFO, format=log_format, handlers=handlers)
+    logging.getLogger("readoubt.devices").setLevel(logging.DEBUG)
+
+
+_configure_logging()
+DEVICE_LOGGER = logging.getLogger("readoubt.devices")
 
 
 @dataclass
@@ -67,9 +91,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.action_open_stage.triggered.connect(self._open_stage_scan_window)
 
         # ---- paths/state ----
-        self.output_folder: Path = Path.home()
+        self.output_folder: Path = APP_DIR
         self._run_folder: Optional[Path] = None
-        self._current_loop_tag: str = ""
+        self._heatmap_dir: Optional[Path] = None
+        self._histogram_dir: Optional[Path] = None
+        self._data_dir: Optional[Path] = None
+        self._active_run_info: Optional[dict] = None
         self.data = np.full((10, 10), np.nan)
         self.ref_matrix: Optional[np.ndarray] = None
         self.ref_path: Optional[Path] = None
@@ -92,6 +119,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._loop_control_widgets: List[QtWidgets.QWidget] = []
         self._time_bias_widgets: List[QtWidgets.QWidget] = []
         self._switch_settle_ms: int = 4
+        self.autosave_enabled: bool = True
+        self.device_logger = DEVICE_LOGGER
 
         # ---- instruments (dummy by default) ----
         self.sm = DummyKeithley2400()
@@ -225,6 +254,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.btn_pause_resume.clicked.connect(self._handle_pause_resume_clicked)
 
         self.ui.btn_browse_folder.clicked.connect(self._select_output_folder)
+        self.autosave_enabled = self.ui.check_autosave.isChecked()
+        self.ui.check_autosave.toggled.connect(self._handle_autosave_toggled)
+        self._register_run_name_watchers()
         self.ui.btn_export_heatmap.clicked.connect(self._export_heatmap)
         self.ui.btn_export_hist.clicked.connect(self._export_histogram)
 
@@ -534,6 +566,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self._selected_history_index = len(self._loop_history) - 1
         self._update_loop_scrub_state()
 
+    def _register_run_name_watchers(self):
+        fields = (
+            "edit_exp_name",
+            "edit_run_name",
+            "edit_run_tag",
+            "edit_experiment_name",
+            "line_run_name",
+        )
+        for name in fields:
+            widget = getattr(self.ui, name, None)
+            if widget is None or not hasattr(widget, "textChanged"):
+                continue
+            widget.textChanged.connect(self._invalidate_run_folder)
+
+    def _invalidate_run_folder(self):
+        thread = getattr(self, "_thread", None)
+        if thread is not None and thread.isRunning():
+            return
+        self._run_folder = None
+        self._heatmap_dir = None
+        self._histogram_dir = None
+        self._data_dir = None
+        self._active_run_info = None
+
     # ---------------------- convenience ----------------------
     def _update_statusbar(self, text: str):
         self.statusBar().showMessage(text, 4000)
@@ -578,6 +634,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self._set_led_checkbox(False)
             return
         try:
+            self.device_logger.info(
+                "Switch board LEDs %s", "ON" if checked else "OFF"
+            )
             self.switch.set_led(bool(checked))
         except Exception as exc:
             logging.error(f"Failed to toggle LEDs: {exc}")
@@ -596,7 +655,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self._switch_connected():
             return
         try:
-            self.switch.set_settle_time(self._switch_settle_ms)
+            applied = self.switch.set_settle_time(self._switch_settle_ms)
+            self.device_logger.info(
+                "Switch board settle time set to %s ms", applied
+            )
         except Exception as exc:
             logging.error(f"Failed to set switch settle time: {exc}")
             if show_error:
@@ -870,12 +932,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def export_acquisition_settings(self) -> AcquisitionSettings:
         return self._build_acquisition_settings()
 
-    def _ensure_run_folder(self) -> Path:
-        if self._run_folder and self._run_folder.exists():
-            return self._run_folder
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        base_name = ""
+    def _collect_experiment_name(self) -> str:
         for attr in (
+            "edit_exp_name",
             "edit_run_name",
             "edit_run_tag",
             "edit_experiment_name",
@@ -883,30 +942,120 @@ class MainWindow(QtWidgets.QMainWindow):
         ):
             widget = getattr(self.ui, attr, None)
             if widget and hasattr(widget, "text"):
-                base_name = (widget.text() or "").strip()
-                if base_name:
-                    break
-        if not base_name:
-            base_name = "scan"
+                text = (widget.text() or "").strip()
+                if text:
+                    return text
+        return "scan"
+
+    def _ensure_run_folder(self, *, force_new: bool = False) -> Path:
+        if (
+            self._run_folder
+            and self._run_folder.exists()
+            and not force_new
+        ):
+            return self._run_folder
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        base_name = self._collect_experiment_name()
         slug = re.sub(r"[^A-Za-z0-9_-]+", "_", base_name).strip("_")
         if not slug:
             slug = "scan"
-        run_folder = Path(self.output_folder) / f"{slug}_{timestamp}"
+        run_id = f"{slug}_{timestamp}"
+        output_root = Path(self.output_folder)
+        output_root.mkdir(parents=True, exist_ok=True)
+        run_folder = output_root / run_id
         run_folder.mkdir(parents=True, exist_ok=True)
+        heatmap_dir = run_folder / "heatmaps"
+        histogram_dir = run_folder / "histograms"
+        data_dir = run_folder / "data"
+        for folder in (heatmap_dir, histogram_dir, data_dir):
+            folder.mkdir(parents=True, exist_ok=True)
         self._run_folder = run_folder
+        self._heatmap_dir = heatmap_dir
+        self._histogram_dir = histogram_dir
+        self._data_dir = data_dir
+        self._active_run_info = {
+            "id": run_id,
+            "experiment_name": base_name or "scan",
+            "timestamp": timestamp,
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "root": str(run_folder),
+            "run_uuid": uuid.uuid4().hex,
+        }
+        logging.info("Created run folder at %s", run_folder)
         return run_folder
 
-    def _start_scan(self):
-        try:
-            run_folder = self._ensure_run_folder()
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Output Folder", str(e))
+    def _write_run_metadata(self, acquisition: AcquisitionSettings):
+        if not self._run_folder:
             return
+        metadata = {
+            "run": {
+                **(self._active_run_info or {}),
+                "autosave": self.autosave_enabled,
+            },
+            "devices": {
+                "read_smu": self.read_sm_idn,
+                "bias_smu": self.bias_sm_idn,
+                "switch": self.switch_idn,
+            },
+            "acquisition": asdict(acquisition),
+            "pixel_spec_text": self.ui.edit_pixel_spec.text(),
+            "math": {
+                "mode": self.math_mode,
+                "epsilon": self.math_eps,
+                "save_processed": self.save_processed,
+            },
+            "output": {
+                "root": str(self._run_folder),
+                "heatmaps": str(self._heatmap_dir or self._run_folder),
+                "histograms": str(self._histogram_dir or self._run_folder),
+                "data": str(self._data_dir or self._run_folder),
+            },
+            "inactive_channels": list(self.inactive_channels),
+            "plot": {
+                "title": self.ui.edit_heatmap_title.text(),
+                "units": self.ui.combo_units.currentText(),
+                "colormap": self.ui.combo_colormap.currentText(),
+                "log_scale": self.ui.check_log_scale_heatmap.isChecked(),
+            },
+            "software": {
+                "log_file": str(LOG_FILE),
+                "python": sys.version.split()[0],
+                "app_dir": str(APP_DIR),
+            },
+        }
+        metadata_path = self._run_folder / "metadata.json"
+        try:
+            with metadata_path.open("w", encoding="utf-8") as fh:
+                json.dump(metadata, fh, indent=2)
+            logging.info("Wrote run metadata to %s", metadata_path)
+        except Exception as exc:
+            logging.error(f"Failed to write metadata to {metadata_path}: {exc}")
+
+    def _start_scan(self):
         try:
             acquisition = self._build_acquisition_settings()
         except ValueError as exc:
             QtWidgets.QMessageBox.critical(self, "Scan Settings", str(exc))
             return
+        run_folder = None
+        if self.autosave_enabled:
+            try:
+                run_folder = self._ensure_run_folder(force_new=True)
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Output Folder", str(e))
+                return
+            self._write_run_metadata(acquisition)
+        else:
+            logging.info(
+                "Autosave disabled – scan results will not be written to disk."
+            )
+        logging.info(
+            "Starting scan (mode=%s, loops=%s, samples/pixel=%s, autosave=%s)",
+            acquisition.measurement_mode,
+            acquisition.loops,
+            acquisition.samples_per_pixel,
+            self.autosave_enabled,
+        )
 
         pixels = acquisition.pixels
         auto_rng = acquisition.auto_range
@@ -1040,10 +1189,6 @@ class MainWindow(QtWidgets.QMainWindow):
             if requested_voltage is not None
             else self._current_voltage
         )
-        if self._current_voltage is not None:
-            self._current_loop_tag = self._voltage_file_tag(self._current_voltage)
-        else:
-            self._current_loop_tag = uuid.uuid4().hex[:6].upper()
         self._update_plots(reset=True)
         if self._current_voltage is not None:
             display = self._voltage_display(self._current_voltage)
@@ -1065,10 +1210,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_loop = loop_idx
 
     def _on_loop_finished(self, loop_idx: int, metadata: Optional[dict] = None):
-        # save per-loop CSV (raw or processed according to checkbox)
         try:
-            if not self._run_folder:
-                self._ensure_run_folder()
             voltage = None
             runtime_ms = None
             if metadata and isinstance(metadata, dict):
@@ -1077,33 +1219,61 @@ class MainWindow(QtWidgets.QMainWindow):
             if self._current_voltage is not None and voltage is None:
                 voltage = self._current_voltage
             if voltage is not None:
-                tag = self._voltage_file_tag(float(voltage))
-                out_name = f"voltage_{loop_idx:03d}_{tag}_data.csv"
+                base_name = f"voltage_{loop_idx:03d}"
             else:
-                out_name = f"loop_{loop_idx:03d}_{self._current_loop_tag}_data.csv"
+                base_name = f"loop_{loop_idx:03d}"
+            out_name = f"{base_name}_data.csv"
+            if not self.autosave_enabled:
+                logging.info("Autosave disabled – skipping files for loop %s", loop_idx)
+                self._update_statusbar(
+                    f"Autosave off – loop {loop_idx} complete (not saved)"
+                )
+                return
+            if not self._run_folder:
+                self._ensure_run_folder()
+            if not self._run_folder:
+                return
             arr = self._apply_math(self.data) if self.save_processed else self.data
-            np.savetxt(self._run_folder / out_name, arr, delimiter=",", fmt="%.5e")
+            data_dir = self._data_dir or self._run_folder
+            csv_path = data_dir / out_name
+            np.savetxt(csv_path, arr, delimiter=",", fmt="%.5e")
+            logging.info("Saved loop data to %s", csv_path)
             mode = "processed" if self.save_processed else "raw"
             runtime_text = ""
             if runtime_ms is not None:
                 runtime_text = f" – local read {float(runtime_ms) / 1000.0:.2f}s"
+            heatmap_name = f"{base_name}_heatmap.png"
             if voltage is not None:
-                heatmap_name = f"voltage_{loop_idx:03d}_{tag}_heatmap.png"
-                try:
-                    self.figure_heatmap.savefig(
-                        self._run_folder / heatmap_name,
-                        dpi=300,
-                        bbox_inches="tight",
-                    )
-                except Exception as exc:
-                    logging.warning(f"Failed to save heatmap for {heatmap_name}: {exc}")
-                self._update_statusbar(
-                    f"Saved {mode} data at {self._voltage_display(float(voltage))}{runtime_text}"
-                )
+                display = self._voltage_display(float(voltage))
+                status_msg = f"Saved {mode} data at {display}{runtime_text}"
             else:
-                self._update_statusbar(
-                    text=f"Loop {loop_idx} saved ({mode}){runtime_text}"
+                status_msg = f"Loop {loop_idx} saved ({mode}){runtime_text}"
+            heatmap_dir = self._heatmap_dir or self._run_folder
+            heatmap_path = heatmap_dir / heatmap_name
+            try:
+                self.figure_heatmap.savefig(
+                    heatmap_path,
+                    dpi=300,
+                    bbox_inches="tight",
                 )
+                logging.info("Saved loop heatmap to %s", heatmap_path)
+            except Exception as exc:
+                logging.warning(f"Failed to save heatmap for {heatmap_name}: {exc}")
+            histogram_dir = self._histogram_dir or self._run_folder
+            histogram_name = f"{base_name}_histogram.png"
+            histogram_path = histogram_dir / histogram_name
+            try:
+                self.figure_hist.savefig(
+                    histogram_path,
+                    dpi=300,
+                    bbox_inches="tight",
+                )
+                logging.info("Saved loop histogram to %s", histogram_path)
+            except Exception as exc:
+                logging.warning(
+                    f"Failed to save histogram for {histogram_name}: {exc}"
+                )
+            self._update_statusbar(status_msg)
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Loop Save Error", f"{e}")
         finally:
@@ -1159,16 +1329,20 @@ class MainWindow(QtWidgets.QMainWindow):
         # optional: save end-of-run images of displayed plots
         try:
             if self._run_folder:
+                summary_heatmap = self._run_folder / "summary_heatmap.png"
+                summary_hist = self._run_folder / "summary_histogram.png"
                 self.figure_heatmap.savefig(
-                    self._run_folder / "summary_heatmap.png",
+                    summary_heatmap,
                     dpi=300,
                     bbox_inches="tight",
                 )
                 self.figure_hist.savefig(
-                    self._run_folder / "summary_histogram.png",
+                    summary_hist,
                     dpi=300,
                     bbox_inches="tight",
                 )
+                logging.info("Saved summary heatmap to %s", summary_heatmap)
+                logging.info("Saved summary histogram to %s", summary_hist)
         except Exception as e:
             QtWidgets.QMessageBox.warning(
                 self, "Summary Save", f"Failed to save images: {e}"
@@ -1388,6 +1562,19 @@ class MainWindow(QtWidgets.QMainWindow):
         if folder:
             self.output_folder = Path(folder)
             self.ui.edit_output_folder.setText(str(self.output_folder))
+            self._invalidate_run_folder()
+            logging.info("Output folder changed to %s", self.output_folder)
+
+    def _handle_autosave_toggled(self, checked: bool):
+        self.autosave_enabled = bool(checked)
+        state = "enabled" if self.autosave_enabled else "disabled"
+        logging.info("Autosave %s", state)
+        if self.autosave_enabled:
+            self._update_statusbar("Autosave enabled – runs will be saved.")
+        else:
+            self._update_statusbar(
+                "Autosave disabled – scans will not be written to disk."
+            )
 
     # ---------------------- menu: device connects ----------------------
     def _connect_read_smu(self):
@@ -1397,6 +1584,7 @@ class MainWindow(QtWidgets.QMainWindow):
         selection, gpib_addr = dlg.get()
         if not selection:
             return
+        logging.info("Connecting read SMU via %s (gpib=%s)", selection, gpib_addr)
         try:
             if (
                 selection.upper().startswith(("USB", "GPIB", "TCPIP"))
@@ -1436,6 +1624,7 @@ class MainWindow(QtWidgets.QMainWindow):
         selection, gpib_addr = dlg.get()
         if not selection:
             return
+        logging.info("Connecting bias SMU via %s (gpib=%s)", selection, gpib_addr)
         try:
             if selection.upper().startswith(("USB", "GPIB", "TCPIP")):
                 adapter = VISAAdapter(selection)
@@ -1462,7 +1651,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.bias_sm.enable_source()
             self.bias_sm.measure_current(nplc=1, current=0.105, auto_range=False)
             self.bias_sm.current_range = 0.001
-            print(self.bias_sm.current)
+            #print(self.bias_sm.current)
             self.bias_sm.disable_source()
             #self.bias_sm.sample_continuously()
             try:
@@ -1496,6 +1685,7 @@ class MainWindow(QtWidgets.QMainWindow):
         port, _ = dlg.get()
         if not port:
             return
+        logging.info("Connecting switch board on port %s", port)
         try:
             self.switch = SwitchBoard(port)
             ser = self.switch.ser

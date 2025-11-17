@@ -1,7 +1,11 @@
+import logging
 import re
 from typing import List, Tuple
 
 import serial
+
+
+logger = logging.getLogger("readoubt.devices")
 
 
 class SwitchBoard:
@@ -13,6 +17,7 @@ class SwitchBoard:
         self.ser = serial.Serial(port, baudrate=baud, timeout=timeout)
         self._local_mode = False
         self._last_voltage = None
+        self._drain_lines(max_lines=15)
 
     def _readline(self) -> str:
         resp = self.ser.readline()
@@ -48,6 +53,7 @@ class SwitchBoard:
         if not 1 <= idx <= 100:
             raise ValueError("Pixel index must be 1-100")
         self._ensure_external_mode()
+        logger.debug("SwitchBoard ROUTE -> %s", idx)
         self.ser.write(f"{idx}\n".encode())
         resp = self._readline()
         if "ACK" not in resp.upper():
@@ -57,11 +63,13 @@ class SwitchBoard:
 
     def set_led(self, enabled: bool):
         cmd = "LED ON" if enabled else "LED OFF"
+        logger.info("SwitchBoard %s", cmd)
         self.ser.write(f"{cmd}\n".encode())
         self._drain_lines(max_lines=2)
 
     def set_settle_time(self, milliseconds: int) -> int:
         value = max(0, int(milliseconds))
+        logger.info("SwitchBoard SETTLE %s ms", value)
         self.ser.write(f"SETTLE {value}\n".encode())
         try:
             self._readline()
@@ -73,6 +81,7 @@ class SwitchBoard:
         value = float(voltage)
         if not (6.0 <= value <= 87.0):
             raise ValueError("Local bias must be between 6 V and 87 V")
+        logger.info("SwitchBoard SETVOLT %.3f", value)
         self.ser.write(f"SETVOLT {value:.3f}\n".encode())
         for _ in range(4):
             try:
@@ -87,6 +96,7 @@ class SwitchBoard:
         return value
 
     def measure_local(self, n_samples) -> Tuple[List[float], float]:
+        logger.info("SwitchBoard MEASURE_LOCAL %s samples", n_samples)
         self.ser.flush()
         self.ser.write(f"MEASURE_LOCAL {n_samples}\n".encode())
         floats: List[float] = []
@@ -108,6 +118,7 @@ class SwitchBoard:
         return currents_nanoamps, runtime_ms
 
     def close(self):
+        logger.info("SwitchBoard serial connection closed")
         self.ser.close()
 
 
@@ -118,25 +129,30 @@ class DummySwitchBoard:
         self._last_voltage = None
 
     def route(self, *_):
+        logger.debug("Dummy SwitchBoard route called")
         pass
 
     def set_led(self, enabled: bool):
+        logger.info("Dummy SwitchBoard LED %s", "ON" if enabled else "OFF")
         self._led_enabled = bool(enabled)
 
     def set_settle_time(self, milliseconds: int) -> int:
         value = max(0, int(milliseconds))
+        logger.info("Dummy SwitchBoard settle -> %s ms", value)
         return value
 
     def set_local_voltage(self, voltage: float) -> float:
         self._last_voltage = float(voltage)
+        logger.info("Dummy SwitchBoard local voltage -> %.3f V", self._last_voltage)
         return self._last_voltage
 
-    def measure_local(self) -> Tuple[List[float], float]:
+    def measure_local(self, n_samples=None) -> Tuple[List[float], float]:
         import numpy as np
 
         rng = np.random.default_rng()
         currents = (rng.random(100) - 0.5) * 100  # nanoamps
         runtime_ms = float(rng.integers(100, 500))
+        logger.info("Dummy SwitchBoard returning simulated local measurement")
         self._local_mode = True
         return currents.tolist(), runtime_ms
 
@@ -144,4 +160,5 @@ class DummySwitchBoard:
         self._local_mode = False
 
     def close(self):
+        logger.info("Dummy SwitchBoard connection closed")
         pass

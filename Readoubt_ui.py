@@ -271,6 +271,12 @@ class Ui_MainWindow(object):
 
         self.save_layout.setWidget(2, QFormLayout.ItemRole.LabelRole, self.label_autosave)
 
+        self.check_autosave = QCheckBox(self.save_box)
+        self.check_autosave.setObjectName(u"check_autosave")
+        self.check_autosave.setChecked(True)
+
+        self.save_layout.setWidget(2, QFormLayout.ItemRole.FieldRole, self.check_autosave)
+
 
         self.verticalLayout_3.addWidget(self.save_box)
 
@@ -653,7 +659,8 @@ class Ui_MainWindow(object):
         self.edit_exp_name.setText(QCoreApplication.translate("MainWindow", u"MyExperiment", None))
         self.label_out.setText(QCoreApplication.translate("MainWindow", u"Output Folder:", None))
         self.btn_browse_folder.setText(QCoreApplication.translate("MainWindow", u"Browse\u2026", None))
-        self.label_autosave.setText("")
+        self.label_autosave.setText(QCoreApplication.translate("MainWindow", u"Autosave:", None))
+        self.check_autosave.setText(QCoreApplication.translate("MainWindow", u"Save runs automatically", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_3), QCoreApplication.translate("MainWindow", u"Output Settings", None))
         self.groupBox.setTitle(QCoreApplication.translate("MainWindow", u"Visualization Settings", None))
         self.label_hm_title.setText(QCoreApplication.translate("MainWindow", u"Title:", None))
@@ -715,4 +722,3 @@ class Ui_MainWindow(object):
         self.btn_pause_resume.setText(QCoreApplication.translate("MainWindow", u"Pause", None))
         self.menuHardware.setTitle(QCoreApplication.translate("MainWindow", u"Hardware", None))
     # retranslateUi
-
