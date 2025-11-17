@@ -10,6 +10,7 @@ from typing import Callable, Iterable, List, Optional, Sequence
 import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.axes import Axes
 from matplotlib.colors import Normalize, to_hex
 import matplotlib.pyplot as plt
 from PySide6 import QtCore, QtWidgets, QtGui
@@ -122,6 +123,8 @@ class AnalysisWindow(QtWidgets.QMainWindow):
         self._resistivity_map: Optional[np.ndarray] = None
         self._heatmap_images: list[Path] = []
         self._hist_images: list[Path] = []
+        self.pixel_checkboxes: dict[int, QtWidgets.QCheckBox] = {}
+        self._suppress_curve_warnings = False
 
         # UI
         central = QtWidgets.QWidget(self)
@@ -153,6 +156,14 @@ class AnalysisWindow(QtWidgets.QMainWindow):
         folder_row.addWidget(browse_btn)
         folder_row.addWidget(self.curve_load_btn)
         layout.addLayout(folder_row)
+
+        splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+        layout.addWidget(splitter, stretch=1)
+
+        left_panel = QtWidgets.QWidget()
+        left_layout = QtWidgets.QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(10)
 
         # Settings group
         settings_group = QtWidgets.QGroupBox("Curve Settings")
@@ -189,25 +200,177 @@ class AnalysisWindow(QtWidgets.QMainWindow):
         settings_form.addRow("Color Scheme:", self.color_scheme_combo)
 
         self.legend_checkbox = QtWidgets.QCheckBox("Show legend")
+        self.legend_checkbox.setChecked(True)
         settings_form.addRow(self.legend_checkbox)
+
+        self.line_style_combo = QtWidgets.QComboBox()
+        self.line_style_combo.addItem("Solid (-)", userData="-")
+        self.line_style_combo.addItem("Dashed (--)", userData="--")
+        self.line_style_combo.addItem("Dash-dot (-.)", userData="-.")
+        self.line_style_combo.addItem("Dotted (:)", userData=":")
+        settings_form.addRow("Line Style:", self.line_style_combo)
+
+        self.marker_combo = QtWidgets.QComboBox()
+        self.marker_combo.addItem("Circle (o)", userData="o")
+        self.marker_combo.addItem("Square (s)", userData="s")
+        self.marker_combo.addItem("Triangle (^)", userData="^")
+        self.marker_combo.addItem("Point (.)", userData=".")
+        self.marker_combo.addItem("None", userData="")
+        settings_form.addRow("Marker:", self.marker_combo)
+
+        self.line_width_spin = QtWidgets.QDoubleSpinBox()
+        self.line_width_spin.setRange(0.1, 10.0)
+        self.line_width_spin.setSingleStep(0.1)
+        self.line_width_spin.setValue(1.5)
+        settings_form.addRow("Line Width:", self.line_width_spin)
+
+        self.marker_size_spin = QtWidgets.QDoubleSpinBox()
+        self.marker_size_spin.setRange(1.0, 20.0)
+        self.marker_size_spin.setSingleStep(1.0)
+        self.marker_size_spin.setValue(6.0)
+        settings_form.addRow("Marker Size:", self.marker_size_spin)
+
+        grid_box = QtWidgets.QWidget()
+        grid_layout = QtWidgets.QHBoxLayout(grid_box)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+        self.grid_major_checkbox = QtWidgets.QCheckBox("Major")
+        self.grid_major_checkbox.setChecked(True)
+        self.grid_minor_checkbox = QtWidgets.QCheckBox("Minor")
+        grid_layout.addWidget(self.grid_major_checkbox)
+        grid_layout.addWidget(self.grid_minor_checkbox)
+        grid_layout.addStretch(1)
+        settings_form.addRow("Grid:", grid_box)
+
+        axis_scale_widget = QtWidgets.QWidget()
+        axis_scale_layout = QtWidgets.QHBoxLayout(axis_scale_widget)
+        axis_scale_layout.setContentsMargins(0, 0, 0, 0)
+        self.log_x_checkbox = QtWidgets.QCheckBox("Log X")
+        self.log_y_checkbox = QtWidgets.QCheckBox("Log Y")
+        axis_scale_layout.addWidget(self.log_x_checkbox)
+        axis_scale_layout.addWidget(self.log_y_checkbox)
+        axis_scale_layout.addStretch(1)
+        settings_form.addRow("Axis Scale:", axis_scale_widget)
+
+        self.xmin_edit = QtWidgets.QLineEdit()
+        self.xmin_edit.setPlaceholderText("auto")
+        self.xmax_edit = QtWidgets.QLineEdit()
+        self.xmax_edit.setPlaceholderText("auto")
+        x_limits_widget = QtWidgets.QWidget()
+        x_limits_layout = QtWidgets.QHBoxLayout(x_limits_widget)
+        x_limits_layout.setContentsMargins(0, 0, 0, 0)
+        x_limits_layout.addWidget(QtWidgets.QLabel("Min"))
+        x_limits_layout.addWidget(self.xmin_edit)
+        x_limits_layout.addWidget(QtWidgets.QLabel("Max"))
+        x_limits_layout.addWidget(self.xmax_edit)
+        settings_form.addRow("X Limits:", x_limits_widget)
+
+        self.ymin_edit = QtWidgets.QLineEdit()
+        self.ymin_edit.setPlaceholderText("auto")
+        self.ymax_edit = QtWidgets.QLineEdit()
+        self.ymax_edit.setPlaceholderText("auto")
+        y_limits_widget = QtWidgets.QWidget()
+        y_limits_layout = QtWidgets.QHBoxLayout(y_limits_widget)
+        y_limits_layout.setContentsMargins(0, 0, 0, 0)
+        y_limits_layout.addWidget(QtWidgets.QLabel("Min"))
+        y_limits_layout.addWidget(self.ymin_edit)
+        y_limits_layout.addWidget(QtWidgets.QLabel("Max"))
+        y_limits_layout.addWidget(self.ymax_edit)
+        settings_form.addRow("Y Limits:", y_limits_widget)
+
+        self.auto_refresh_checkbox = QtWidgets.QCheckBox("Auto-update plot on change")
+        self.auto_refresh_checkbox.setChecked(True)
+        settings_form.addRow(self.auto_refresh_checkbox)
 
         self.curve_refresh_btn = QtWidgets.QPushButton("Plot Curve")
         self.curve_refresh_btn.clicked.connect(self._plot_curve)
         settings_form.addRow(self.curve_refresh_btn)
 
-        layout.addWidget(settings_group)
+        left_layout.addWidget(settings_group)
 
-        # Plot canvas
+        pixel_group = QtWidgets.QGroupBox("Pixel Visibility")
+        pixel_layout = QtWidgets.QVBoxLayout(pixel_group)
+        grid_container = QtWidgets.QWidget()
+        grid_container_layout = QtWidgets.QGridLayout(grid_container)
+        grid_container_layout.setSpacing(2)
+        for row in range(10):
+            for col in range(10):
+                idx = row * 10 + col + 1
+                checkbox = QtWidgets.QCheckBox(f"{idx:02d}")
+                checkbox.setChecked(True)
+                checkbox.toggled.connect(self._on_pixel_checkbox_toggled)
+                self.pixel_checkboxes[idx] = checkbox
+                grid_container_layout.addWidget(checkbox, row, col)
+        pixel_layout.addWidget(grid_container)
+        pixel_button_row = QtWidgets.QHBoxLayout()
+        select_all_btn = QtWidgets.QPushButton("Select All")
+        select_all_btn.clicked.connect(lambda: self._set_all_pixel_checkboxes(True))
+        clear_btn = QtWidgets.QPushButton("Clear All")
+        clear_btn.clicked.connect(lambda: self._set_all_pixel_checkboxes(False))
+        pixel_button_row.addWidget(select_all_btn)
+        pixel_button_row.addWidget(clear_btn)
+        pixel_button_row.addStretch(1)
+        pixel_layout.addLayout(pixel_button_row)
+        self.pixel_summary_label = QtWidgets.QLabel("")
+        pixel_layout.addWidget(self.pixel_summary_label)
+        left_layout.addWidget(pixel_group, stretch=1)
+        left_layout.addStretch(1)
+
+        splitter.addWidget(left_panel)
+
+        # Plot canvas and stats on the right
+        right_panel = QtWidgets.QWidget()
+        right_layout = QtWidgets.QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
         self.curve_canvas = MatplotlibCanvas(width=6.0, height=4.5, dpi=100)
-        layout.addWidget(self.curve_canvas, stretch=1)
-
+        right_layout.addWidget(self.curve_canvas, stretch=1)
         self.curve_stats_label = QtWidgets.QLabel("")
         self.curve_stats_label.setWordWrap(True)
-        layout.addWidget(self.curve_stats_label)
+        right_layout.addWidget(self.curve_stats_label)
+        splitter.addWidget(right_panel)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+
+        self._initialize_auto_refresh_connections()
+        self._update_pixel_summary()
 
         self.tabs.addTab(tab, "Curves")
         self._on_dataset_changed()
         self._on_plot_mode_changed()
+        self._auto_refresh_curve()
+
+    def _initialize_auto_refresh_connections(self) -> None:
+        controls = [
+            self.aggregate_combo,
+            self.color_scheme_combo,
+            self.legend_checkbox,
+            self.time_axis_combo,
+            self.line_style_combo,
+            self.marker_combo,
+            self.line_width_spin,
+            self.marker_size_spin,
+            self.grid_major_checkbox,
+            self.grid_minor_checkbox,
+            self.log_x_checkbox,
+            self.log_y_checkbox,
+            self.xmin_edit,
+            self.xmax_edit,
+            self.ymin_edit,
+            self.ymax_edit,
+            self.pixel_spec_edit,
+        ]
+        for widget in controls:
+            self._connect_auto_refresh(widget)
+        self.auto_refresh_checkbox.toggled.connect(self._auto_refresh_curve)
+
+    def _connect_auto_refresh(self, widget: QtWidgets.QWidget) -> None:
+        if isinstance(widget, QtWidgets.QComboBox):
+            widget.currentIndexChanged.connect(self._auto_refresh_curve)
+        elif isinstance(widget, QtWidgets.QCheckBox):
+            widget.toggled.connect(self._auto_refresh_curve)
+        elif isinstance(widget, QtWidgets.QLineEdit):
+            widget.editingFinished.connect(self._auto_refresh_curve)
+        elif isinstance(widget, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
+            widget.valueChanged.connect(self._auto_refresh_curve)
 
     def _build_resistivity_tab(self) -> None:
         tab = QtWidgets.QWidget()
@@ -294,6 +457,117 @@ class AnalysisWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.video_status_label)
 
         self.tabs.addTab(tab, "Video Builder")
+
+    def _on_pixel_checkbox_toggled(self) -> None:
+        self._update_pixel_summary()
+
+    def _set_all_pixel_checkboxes(self, checked: bool) -> None:
+        for checkbox in self.pixel_checkboxes.values():
+            checkbox.blockSignals(True)
+            checkbox.setChecked(checked)
+            checkbox.blockSignals(False)
+        self._update_pixel_summary()
+
+    def _update_pixel_summary(self) -> None:
+        active = len(self._active_pixel_indices())
+        self.pixel_summary_label.setText(f"Enabled pixels: {active}/100")
+        if active == 0:
+            self.pixel_summary_label.setStyleSheet("color: crimson;")
+        else:
+            self.pixel_summary_label.setStyleSheet("")
+        self._auto_refresh_curve()
+
+    def _active_pixel_indices(self) -> List[int]:
+        return [idx for idx, checkbox in self.pixel_checkboxes.items() if checkbox.isChecked()]
+
+    def _resolve_pixel_selection(self) -> List[int]:
+        spec_text = (self.pixel_spec_edit.text() or "").strip()
+        try:
+            parsed = list(self._pixel_parser(spec_text or "1-100"))
+        except Exception as exc:
+            raise ValueError(f"Invalid pixel selection: {exc}") from exc
+        parsed = [idx for idx in parsed if 1 <= idx <= 100]
+        active = self._active_pixel_indices()
+        if not parsed:
+            selected = list(active)
+        else:
+            selected = [idx for idx in parsed if idx in active]
+        if not selected:
+            if not active:
+                raise ValueError("No pixels are enabled in the grid.")
+            raise ValueError("Selected pixels are disabled in the visibility grid.")
+        return selected
+
+    def _auto_refresh_curve(self) -> None:
+        if not self.auto_refresh_checkbox.isChecked():
+            return
+        if not (self._time_entries or self._voltage_entries):
+            return
+        self._suppress_curve_warnings = True
+        try:
+            self._plot_curve()
+        finally:
+            self._suppress_curve_warnings = False
+
+    def _show_curve_warning(self, title: str, message: str) -> None:
+        if self._suppress_curve_warnings:
+            return
+        QtWidgets.QMessageBox.warning(self, title, message)
+
+    def _apply_axis_formatting(self, ax: Axes, x_values: Sequence[float], y_values: Sequence[float]) -> None:
+        if self.grid_major_checkbox.isChecked():
+            ax.grid(True, which="major", linestyle="--", alpha=0.4)
+        else:
+            ax.grid(False, which="major")
+        if self.grid_minor_checkbox.isChecked():
+            ax.minorticks_on()
+            ax.grid(True, which="minor", linestyle=":", alpha=0.25)
+        else:
+            ax.minorticks_off()
+            ax.grid(False, which="minor")
+
+        if self.log_x_checkbox.isChecked():
+            if x_values and all(val > 0 for val in x_values):
+                ax.set_xscale("log")
+            else:
+                self._show_curve_warning("Axis Scale", "Cannot enable log X axis when values are zero or negative.")
+                self.log_x_checkbox.setChecked(False)
+                ax.set_xscale("linear")
+        else:
+            ax.set_xscale("linear")
+
+        if self.log_y_checkbox.isChecked():
+            if y_values and all(val > 0 for val in y_values):
+                ax.set_yscale("log")
+            else:
+                self._show_curve_warning("Axis Scale", "Cannot enable log Y axis when values are zero or negative.")
+                self.log_y_checkbox.setChecked(False)
+                ax.set_yscale("linear")
+        else:
+            ax.set_yscale("linear")
+
+        x_min = self._extract_limit_value(self.xmin_edit)
+        x_max = self._extract_limit_value(self.xmax_edit)
+        if x_min is not None or x_max is not None:
+            current = ax.get_xlim()
+            ax.set_xlim(x_min if x_min is not None else current[0], x_max if x_max is not None else current[1])
+
+        y_min = self._extract_limit_value(self.ymin_edit)
+        y_max = self._extract_limit_value(self.ymax_edit)
+        if y_min is not None or y_max is not None:
+            current = ax.get_ylim()
+            ax.set_ylim(y_min if y_min is not None else current[0], y_max if y_max is not None else current[1])
+
+    def _extract_limit_value(self, edit: QtWidgets.QLineEdit) -> Optional[float]:
+        text = edit.text().strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            self._show_curve_warning("Axis Limits", f"Invalid numeric limit: {text}")
+            edit.clear()
+            return None
 
     # ------------------------------------------------------------------ public helpers
     def set_run_folder(self, folder: Path, *, auto_load: bool = False) -> None:
@@ -453,6 +727,7 @@ class AnalysisWindow(QtWidgets.QMainWindow):
         self.aggregate_combo.setEnabled(aggregate)
         self.legend_checkbox.setEnabled(True)
         self.color_scheme_combo.setEnabled(True)
+        self._auto_refresh_curve()
 
     def _plot_curve(self) -> None:
         dataset_kind = self.dataset_combo.currentData()
@@ -470,13 +745,9 @@ class AnalysisWindow(QtWidgets.QMainWindow):
             return
 
         try:
-            pixel_indices = list(self._pixel_parser(self.pixel_spec_edit.text()))
-        except Exception as exc:
-            QtWidgets.QMessageBox.warning(self, "Pixels", f"Invalid pixel selection: {exc}")
-            return
-
-        if not pixel_indices:
-            QtWidgets.QMessageBox.warning(self, "Pixels", "Select at least one pixel.")
+            pixel_indices = self._resolve_pixel_selection()
+        except ValueError as exc:
+            self._show_curve_warning("Pixels", str(exc))
             return
 
         agg_name = self.aggregate_combo.currentText()
@@ -484,25 +755,36 @@ class AnalysisWindow(QtWidgets.QMainWindow):
 
         self.curve_canvas.clear()
         ax = self.curve_canvas.ax
-        ax.grid(True, linestyle="--", alpha=0.4)
 
         stats_message = ""
         legend_labels: list[str] = []
+        axis_x: list[float] = []
+        axis_y: list[float] = []
         if plot_mode == "aggregate":
             agg_fn = AGGREGATORS.get(agg_name)
             if not agg_fn:
-                QtWidgets.QMessageBox.warning(self, "Combine", f"Unknown aggregator: {agg_name}")
+                self._show_curve_warning("Combine", f"Unknown aggregator: {agg_name}")
                 return
             x_vals, y_vals = self._compute_curve_points(entries, dataset_kind, pixel_indices, agg_fn)
             if not x_vals:
                 self.curve_canvas.draw_idle()
                 self.curve_stats_label.setText("No valid data points for the current selection.")
                 return
+            line_style = self.line_style_combo.currentData() or "-"
+            marker = self.marker_combo.currentData() or None
+            line_width = float(self.line_width_spin.value())
+            marker_size = float(self.marker_size_spin.value())
             color = self._get_colors(1)[0]
+            plot_kwargs = dict(
+                marker=marker or None,
+                linestyle=line_style,
+                linewidth=line_width,
+                markersize=marker_size,
+            )
             if color:
-                ax.plot(x_vals, y_vals, marker="o", linestyle="-", color=color, label="Selection")
+                ax.plot(x_vals, y_vals, color=color, label="Selection", **plot_kwargs)
             else:
-                ax.plot(x_vals, y_vals, marker="o", linestyle="-", label="Selection")
+                ax.plot(x_vals, y_vals, label="Selection", **plot_kwargs)
             stats = np.array(y_vals, dtype=float)
             stats = stats[np.isfinite(stats)]
             if stats.size:
@@ -513,6 +795,8 @@ class AnalysisWindow(QtWidgets.QMainWindow):
             else:
                 stats_message = "All curve points are NaN."
             legend_labels = ["Selection"]
+            axis_x = list(x_vals)
+            axis_y = list(y_vals)
         else:
             per_pixel = self._compute_per_pixel_curves(entries, dataset_kind, pixel_indices)
             if not per_pixel:
@@ -521,13 +805,25 @@ class AnalysisWindow(QtWidgets.QMainWindow):
                 return
             colors = self._get_colors(len(per_pixel))
             all_values: list[float] = []
+            line_style = self.line_style_combo.currentData() or "-"
+            marker = self.marker_combo.currentData() or None
+            line_width = float(self.line_width_spin.value())
+            marker_size = float(self.marker_size_spin.value())
+            plot_kwargs = dict(
+                marker=marker or None,
+                linestyle=line_style,
+                linewidth=line_width,
+                markersize=marker_size,
+            )
             for (idx, (xs, ys)), color in zip(per_pixel.items(), colors):
                 if color:
-                    ax.plot(xs, ys, marker="o", linestyle="-", color=color, label=f"Pixel {idx}")
+                    ax.plot(xs, ys, color=color, label=f"Pixel {idx}", **plot_kwargs)
                 else:
-                    ax.plot(xs, ys, marker="o", linestyle="-", label=f"Pixel {idx}")
+                    ax.plot(xs, ys, label=f"Pixel {idx}", **plot_kwargs)
                 legend_labels.append(f"Pixel {idx}")
                 all_values.extend(ys)
+                axis_x.extend(xs)
+                axis_y.extend(ys)
             if all_values:
                 arr = np.array(all_values, dtype=float)
                 stats_message = (
@@ -556,6 +852,7 @@ class AnalysisWindow(QtWidgets.QMainWindow):
             if leg:
                 leg.remove()
 
+        self._apply_axis_formatting(ax, axis_x, axis_y)
         self.curve_canvas.figure.tight_layout()
         self.curve_canvas.draw_idle()
 
