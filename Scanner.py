@@ -182,7 +182,7 @@ class ScanWorker(QtCore.QObject):
                             if self._stop:
                                 break
                             try:
-                                val = float(self._sm.current)
+                                val = -1*float(self._sm.current) # We need to invert, as the sourcemeter ammeter is set up to see currents leaving it as positive.
                                 if self._delay_s > 0:
                                     self._sleep_with_stop(
                                         self._delay_s, allow_pause=True

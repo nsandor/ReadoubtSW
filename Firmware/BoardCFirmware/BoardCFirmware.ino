@@ -72,6 +72,7 @@ bool verbose = true;
 bool local = false;
 float calValue;
 int settleTime = 4; //ms
+int inactiveChannels = [];;
 /* ─── Low-level helpers (shift reg / LED matrix) ───────────────── */
 
 void clearRegister() {
@@ -271,7 +272,7 @@ void printADC_ads112c04() {
   // LSB ≈ 62.5 µV.
   float zeroed = raw - 16499;
   float volts = zeroed * ADS112C04_LSB_VOLTS;
-  float nanoAmps = -1 * volts / 20000000 * 1000000000;
+  float nanoAmps = calValue* -1 * volts / 20000000 * 1000000000;
   Serial.print(F("ADC raw="));
   Serial.print(raw);
   Serial.print(F(" V="));
@@ -550,7 +551,7 @@ void loop() {
   }
 
   if(up=="SWSTATUS"){
-    //Serial.println(inactiveChannels);
+    Serial.println(inactiveChannels);
     return;
   }
 
@@ -576,7 +577,6 @@ void loop() {
     EEPROM.write(10,calValue);
     Serial.print(F("Calibration value set to: "));
     Serial.println(calValue);
-    //setVoltage(static_cast<uint16_t>(calValue));
     return;
   }
 
@@ -612,7 +612,6 @@ void loop() {
     if (!local){
       setGpio(PIN_AMPLIFIER_SEL, "ON", "AMP"); 
       setGpio(PIN_TIA_SELECT, "ON", "TIA");
-      //setGpio(PIN_SWINV_SELECT, "ON", "SWINV");
       setGpio(PIN_OUTPUT_ROUTER, "OFF", "ROUTE");
       local = true;
     }
