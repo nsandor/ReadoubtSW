@@ -13,6 +13,7 @@ class ScanWorker(QtCore.QObject):
     loopDataReady = Signal(int, object)
     loopStarted = Signal(int, object)
     loopFinished = Signal(int, object)
+    loopProgress = Signal(int, int, int)
     deviceError = Signal(str)
     finished = Signal()
 
@@ -60,6 +61,12 @@ class ScanWorker(QtCore.QObject):
             self._loops = len(self._voltage_points)
         self._use_local_readout = bool(use_local_readout)
         self._use_local_bias = bool(use_local_bias)
+        self._per_loop_total = max(1, len(self._pixels) or 1)
+
+    def _emit_loop_progress(self, loop_idx: int, done: int, total: Optional[int] = None):
+        total_count = max(1, int(total if total is not None else self._per_loop_total))
+        done_count = max(0, min(int(done), total_count))
+        self.loopProgress.emit(loop_idx, done_count, total_count)
 
     @QtCore.Slot()
     def run(self):
@@ -160,7 +167,18 @@ class ScanWorker(QtCore.QObject):
                             "Switch board local measurement requested (%s samples/pixel)",
                             self._n,
                         )
-                        avg_currents, sample_runtime_ms = self._sw.measure_local(n_samples=self._n)
+                        def local_progress_cb(done_count, total_count):
+                            try:
+                                done_i = int(done_count)
+                                total_i = int(total_count)
+                            except Exception:
+                                return
+                            self._emit_loop_progress(loop_idx, done_i, total_i or 1)
+
+                        avg_currents, sample_runtime_ms = self._sw.measure_local(
+                            n_samples=self._n,
+                            progress_cb=local_progress_cb,
+                        )
                     except Exception as e:
                         logging.warning(f"Local measurement failed: {e}")
                         self.deviceError.emit(f"Local measurement failed: {e}")
@@ -178,6 +196,8 @@ class ScanWorker(QtCore.QObject):
                             continue
                         nanoamps = avg_currents[idx]
                         loop_results.append((p, float(nanoamps) * 1e-9))
+                    total_points = max(1, len(avg_currents))
+                    self._emit_loop_progress(loop_idx, total_points, total_points)
                 else:
                     for p in self._pixels:
                         while self._paused and not self._stop:
@@ -216,6 +236,7 @@ class ScanWorker(QtCore.QObject):
                         if self._stop:
                             break
                         loop_results.append((p, float(np.mean(vals))))
+                        self._emit_loop_progress(loop_idx, len(loop_results), len(self._pixels) or 1)
 
                 if self._stop:
                     break

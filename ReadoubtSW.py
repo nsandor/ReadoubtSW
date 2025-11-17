@@ -121,6 +121,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._switch_settle_ms: int = 4
         self.autosave_enabled: bool = True
         self.device_logger = DEVICE_LOGGER
+        self._loop_progress_total: int = 0
+        self._scan_pixel_count: int = 0
 
         # ---- instruments (dummy by default) ----
         self.sm = DummyKeithley2400()
@@ -176,6 +178,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ui.loop_delay_label,
             self.ui.loop_delay,
         ]
+        if hasattr(self.ui, "LoopProgressBar"):
+            self.ui.LoopProgressBar.setRange(0, 1)
+            self.ui.LoopProgressBar.setValue(0)
+            self.ui.LoopProgressBar.setFormat("Loop progress: %p%")
 
         # ---- time-mode bias controls ----
         self.ui.check_bias_enable = QtWidgets.QCheckBox(
@@ -565,6 +571,41 @@ class MainWindow(QtWidgets.QMainWindow):
         self._loop_history.append(snapshot)
         self._selected_history_index = len(self._loop_history) - 1
         self._update_loop_scrub_state()
+
+    def _reset_loop_progress_bar(self):
+        bar = getattr(self.ui, "LoopProgressBar", None)
+        if not bar:
+            return
+        bar.setRange(0, 1)
+        bar.setValue(0)
+        bar.setFormat("Loop progress: %p%")
+
+    def _prepare_loop_progress_bar(self, *, use_local: bool):
+        bar = getattr(self.ui, "LoopProgressBar", None)
+        if not bar:
+            return
+        local_total = 100
+        total = max(1, local_total if use_local else (self._scan_pixel_count or 1))
+        bar.setRange(0, total)
+        bar.setValue(0)
+        label = (
+            "Local board progress"
+            if use_local
+            else ("Voltage step progress" if self.measurement_mode == "voltage" else "Loop progress")
+        )
+        bar.setFormat(f"{label}: %p% (%v/%m)")
+
+    def _set_loop_progress_value(self, loop_idx: int, done: int, total: int):
+        bar = getattr(self.ui, "LoopProgressBar", None)
+        if not bar:
+            return
+        total = max(1, int(total))
+        done = max(0, min(int(done), total))
+        if bar.maximum() != total or bar.minimum() != 0:
+            bar.setRange(0, total)
+        bar.setValue(done)
+        label = "Voltage step" if self.measurement_mode == "voltage" else "Loop"
+        bar.setFormat(f"{label} {loop_idx}: %p% (%v/%m)")
 
     def _register_run_name_watchers(self):
         fields = (
@@ -1114,6 +1155,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 self, "Scan", "At least one iteration is required."
             )
             return
+        self._scan_pixel_count = len(pixels)
+        self._loop_progress_total = (
+            100 if use_local_readout else max(1, self._scan_pixel_count or 1)
+        )
+        self._prepare_loop_progress_bar(use_local=use_local_readout)
 
         # worker
         bias_device = (
@@ -1147,6 +1193,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._worker.loopDataReady.connect(self._on_loop_data)
         self._worker.loopStarted.connect(self._on_loop_started)
         self._worker.loopFinished.connect(self._on_loop_finished)
+        self._worker.loopProgress.connect(self._on_loop_progress)
         self._worker.deviceError.connect(self._handle_device_error)
         self._worker.finished.connect(self._scan_finished)
         self._thread.started.connect(self._worker.run)
@@ -1207,6 +1254,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._update_statusbar(msg)
         else:
             self._update_statusbar(text=f"Loop {loop_idx} started…")
+        base_total = self._loop_progress_total or self._scan_pixel_count or 1
+        self._set_loop_progress_value(loop_idx, 0, base_total)
         self._current_loop = loop_idx
 
     def _on_loop_finished(self, loop_idx: int, metadata: Optional[dict] = None):
@@ -1315,6 +1364,9 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._update_plots()
 
+    def _on_loop_progress(self, loop_idx: int, done: int, total: int):
+        self._set_loop_progress_value(loop_idx, done, total)
+
     def _scan_finished(self):
         if self._thread:
             self._thread.quit()
@@ -1353,6 +1405,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._constant_bias_voltage = None
         self._update_statusbar(text="Scan finished.")
         self._update_loop_scrub_state()
+        self._reset_loop_progress_bar()
         if self.analysis_window and self._run_folder:
             try:
                 self.analysis_window.set_run_folder(self._run_folder, auto_load=True)

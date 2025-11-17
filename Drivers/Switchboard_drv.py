@@ -95,23 +95,29 @@ class SwitchBoard:
         self._last_voltage = value
         return value
 
-    def measure_local(self, n_samples) -> Tuple[List[float], float]:
+    def measure_local(self, n_samples=None, progress_cb=None) -> Tuple[List[float], float]:
+        if n_samples is None:
+            n_samples = 1
         logger.info("SwitchBoard MEASURE_LOCAL %s samples", n_samples)
         self.ser.flush()
         self.ser.write(f"MEASURE_LOCAL {n_samples}\n".encode())
         floats: List[float] = []
         self.ser.timeout = None
-        attempts = 0
-        while len(floats) < 101:
+        data_points = 100
+        while len(floats) < data_points + 1:
             line = self._readline()
             try:
-                floats.append(float(line))
+                value = float(line)
             except ValueError:
                 # Skip informational lines produced by GPIO helpers.
                 pass
-            attempts += 1
-            if attempts > 200:
-                raise TimeoutError("Switch board local measurement did not finish")
+            else:
+                floats.append(value)
+                if progress_cb and len(floats) <= data_points:
+                    try:
+                        progress_cb(len(floats), data_points)
+                    except Exception:
+                        pass
         self._local_mode = True
         runtime_ms = floats[-1]
         currents_nanoamps = floats[:-1]
@@ -146,13 +152,21 @@ class DummySwitchBoard:
         logger.info("Dummy SwitchBoard local voltage -> %.3f V", self._last_voltage)
         return self._last_voltage
 
-    def measure_local(self, n_samples=None) -> Tuple[List[float], float]:
+    def measure_local(self, n_samples=None, progress_cb=None) -> Tuple[List[float], float]:
+        if n_samples is None:
+            n_samples = 1
         import numpy as np
 
         rng = np.random.default_rng()
         currents = (rng.random(100) - 0.5) * 100  # nanoamps
         runtime_ms = float(rng.integers(100, 500))
         logger.info("Dummy SwitchBoard returning simulated local measurement")
+        if progress_cb:
+            for idx in range(1, 101):
+                try:
+                    progress_cb(idx, 100)
+                except Exception:
+                    break
         self._local_mode = True
         return currents.tolist(), runtime_ms
 

@@ -847,6 +847,13 @@
      </widget>
     </item>
     <item>
+     <widget class="QProgressBar" name="LoopProgressBar">
+      <property name="value">
+       <number>0</number>
+      </property>
+     </widget>
+    </item>
+    <item>
      <widget class="QProgressBar" name="ScanprogressBar">
       <property name="value">
        <number>0</number>

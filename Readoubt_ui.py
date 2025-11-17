@@ -569,6 +569,12 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_0.addWidget(self.frame_2)
 
+        self.LoopProgressBar = QProgressBar(self.centralwidget)
+        self.LoopProgressBar.setObjectName(u"LoopProgressBar")
+        self.LoopProgressBar.setValue(0)
+
+        self.verticalLayout_0.addWidget(self.LoopProgressBar)
+
         self.ScanprogressBar = QProgressBar(self.centralwidget)
         self.ScanprogressBar.setObjectName(u"ScanprogressBar")
         self.ScanprogressBar.setValue(0)
