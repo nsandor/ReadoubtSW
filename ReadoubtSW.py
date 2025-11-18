@@ -8,6 +8,7 @@ import sys
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -1025,6 +1026,45 @@ class MainWindow(QtWidgets.QMainWindow):
         logging.info("Created run folder at %s", run_folder)
         return run_folder
 
+    def _loop_csv_metadata(
+        self,
+        loop_idx: int,
+        voltage: Optional[float],
+        runtime_ms: Optional[float],
+    ) -> dict:
+        dataset = "voltage" if self.measurement_mode == "voltage" else "time"
+        elapsed = max(
+            0.0, float(time.time() - getattr(self, "_start_time", time.time()))
+        )
+        metadata: dict = {
+            "dataset": dataset,
+            "loop_index": int(loop_idx),
+            "measurement_mode": self.measurement_mode,
+            "timestamp": datetime.utcnow().isoformat(),
+            "elapsed_s": elapsed,
+        }
+        if runtime_ms is not None:
+            metadata["runtime_ms"] = float(runtime_ms)
+        if voltage is not None:
+            metadata["voltage"] = float(voltage)
+            if self._requested_voltage is not None:
+                metadata["requested_voltage"] = float(self._requested_voltage)
+        if self._constant_bias_voltage is not None:
+            metadata["constant_bias_voltage"] = float(self._constant_bias_voltage)
+        if self._voltage_sequence:
+            metadata["voltage_sequence_count"] = len(self._voltage_sequence)
+        metadata["pixel_spec"] = self.ui.edit_pixel_spec.text()
+        return metadata
+
+    @staticmethod
+    def _format_csv_metadata(metadata: dict) -> str:
+        try:
+            payload = json.dumps(metadata, separators=(",", ":"), sort_keys=True)
+            return f"READOUT_METADATA {payload}"
+        except Exception as exc:
+            logging.warning(f"Failed to encode CSV metadata: {exc}")
+            return ""
+
     def _write_run_metadata(self, acquisition: AcquisitionSettings):
         if not self._run_folder:
             return
@@ -1285,7 +1325,13 @@ class MainWindow(QtWidgets.QMainWindow):
             arr = self._apply_math(self.data) if self.save_processed else self.data
             data_dir = self._data_dir or self._run_folder
             csv_path = data_dir / out_name
-            np.savetxt(csv_path, arr, delimiter=",", fmt="%.5e")
+            csv_metadata = self._loop_csv_metadata(loop_idx, voltage, runtime_ms)
+            header = self._format_csv_metadata(csv_metadata)
+            save_kwargs = dict(delimiter=",", fmt="%.5e")
+            if header:
+                save_kwargs["header"] = header
+                save_kwargs["comments"] = "# "
+            np.savetxt(csv_path, arr, **save_kwargs)
             logging.info("Saved loop data to %s", csv_path)
             mode = "processed" if self.save_processed else "raw"
             runtime_text = ""

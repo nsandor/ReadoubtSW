@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import subprocess
 from dataclasses import dataclass
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Sequence
@@ -104,6 +105,31 @@ COLOR_SCHEME_MAP = {
     "Cividis": "cividis",
     "Rainbow": "rainbow",
 }
+
+
+def load_csv_with_metadata(path: Path) -> tuple[np.ndarray, dict]:
+    metadata: dict = {}
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if not stripped.startswith("#"):
+                    break
+                content = stripped.lstrip("#").strip()
+                if content.startswith("READOUT_METADATA"):
+                    payload = content[len("READOUT_METADATA") :].strip()
+                    if payload:
+                        try:
+                            metadata = json.loads(payload)
+                        except json.JSONDecodeError:
+                            metadata = {}
+                    break
+    except Exception:
+        metadata = {}
+    array = np.loadtxt(path, delimiter=",", dtype=float)
+    return array, metadata
 
 
 class AnalysisWindow(QtWidgets.QMainWindow):
@@ -569,6 +595,16 @@ class AnalysisWindow(QtWidgets.QMainWindow):
             edit.clear()
             return None
 
+    @staticmethod
+    def _metadata_timestamp(metadata: dict) -> Optional[datetime]:
+        stamp = metadata.get("timestamp")
+        if not stamp:
+            return None
+        try:
+            return datetime.fromisoformat(stamp)
+        except ValueError:
+            return None
+
     # ------------------------------------------------------------------ public helpers
     def set_run_folder(self, folder: Path, *, auto_load: bool = False) -> None:
         """Expose ability to inject a folder from the main window."""
@@ -598,7 +634,7 @@ class AnalysisWindow(QtWidgets.QMainWindow):
 
     def _load_run_folder(self, folder: Path) -> None:
         voltage_entries: list[VoltageEntry] = []
-        time_temp: list[tuple[int, datetime, np.ndarray, Path]] = []
+        time_temp: list[tuple[int, Optional[float], np.ndarray, Path, datetime]] = []
         heatmap_images: list[Path] = []
         hist_images: list[Path] = []
 
@@ -612,24 +648,37 @@ class AnalysisWindow(QtWidgets.QMainWindow):
         for csv_path in csv_files:
             name = csv_path.name
             try:
-                arr = np.loadtxt(csv_path, delimiter=",", dtype=float)
+                arr, metadata = load_csv_with_metadata(csv_path)
                 if arr.size == 100:
                     arr = arr.reshape((10, 10))
                 if arr.shape != (10, 10):
                     raise ValueError(f"Unexpected array shape {arr.shape}")
-                timestamp = datetime.fromtimestamp(csv_path.stat().st_mtime)
+                timestamp = (
+                    self._metadata_timestamp(metadata)
+                    or datetime.fromtimestamp(csv_path.stat().st_mtime)
+                )
+                dataset_hint = (metadata.get("dataset") or "").lower()
+                loop_index_meta = metadata.get("loop_index")
+                idx_meta = int(loop_index_meta) if isinstance(loop_index_meta, (int, float)) else None
 
-                if name.startswith("voltage_") and name.endswith("_data.csv"):
-                    parts = name.split("_")
-                    if len(parts) < 3:
-                        raise ValueError("voltage filename missing tag")
-                    idx = int(parts[1])
-                    tag = parts[2]
-                    voltage = self._decode_voltage_tag(tag)
+                if name.startswith("voltage_") and name.endswith("_data.csv") or dataset_hint == "voltage":
+                    idx = idx_meta
+                    if idx is None:
+                        parts = name.split("_")
+                        if len(parts) < 2:
+                            raise ValueError("voltage filename missing index")
+                        idx = int(parts[1])
+                    voltage_val = metadata.get("voltage")
+                    if voltage_val is None:
+                        parts = name.split("_")
+                        if len(parts) < 3:
+                            raise ValueError("voltage filename missing tag")
+                        tag = parts[2]
+                        voltage_val = self._decode_voltage_tag(tag)
                     voltage_entries.append(
                         VoltageEntry(
-                            index=idx,
-                            voltage=voltage,
+                            index=int(idx),
+                            voltage=float(voltage_val),
                             data=arr,
                             path=csv_path,
                             timestamp=timestamp,
@@ -638,12 +687,16 @@ class AnalysisWindow(QtWidgets.QMainWindow):
                     guess_heatmap = csv_path.with_name(csv_path.stem.replace("_data", "_heatmap") + ".png")
                     if guess_heatmap.exists():
                         heatmap_images.append(guess_heatmap)
-                elif name.startswith("loop_") and name.endswith("_data.csv"):
-                    parts = name.split("_")
-                    if len(parts) < 3:
-                        raise ValueError("loop filename missing tag")
-                    idx = int(parts[1])
-                    time_temp.append((idx, timestamp, arr, csv_path))
+                elif name.startswith("loop_") and name.endswith("_data.csv") or dataset_hint == "time":
+                    idx = idx_meta
+                    if idx is None:
+                        parts = name.split("_")
+                        if len(parts) < 2:
+                            raise ValueError("loop filename missing index")
+                        idx = int(parts[1])
+                    elapsed_val = metadata.get("elapsed_s")
+                    elapsed = float(elapsed_val) if isinstance(elapsed_val, (int, float)) else None
+                    time_temp.append((int(idx), elapsed, arr, csv_path, timestamp))
                     guess_heatmap = csv_path.with_name(csv_path.stem.replace("_data", "_heatmap") + ".png")
                     if guess_heatmap.exists():
                         heatmap_images.append(guess_heatmap)
@@ -657,9 +710,12 @@ class AnalysisWindow(QtWidgets.QMainWindow):
         time_entries: list[TimeEntry] = []
         if time_temp:
             time_temp.sort(key=lambda item: item[0])
-            base_ts = min(t for _, t, _, _ in time_temp)
-            for idx, timestamp, arr, path in time_temp:
-                elapsed = max((timestamp - base_ts).total_seconds(), 0.0)
+            base_ts = min(ts for _, _, _, _, ts in time_temp)
+            for idx, elapsed_opt, arr, path, timestamp in time_temp:
+                if elapsed_opt is not None:
+                    elapsed = max(float(elapsed_opt), 0.0)
+                else:
+                    elapsed = max((timestamp - base_ts).total_seconds(), 0.0)
                 time_entries.append(
                     TimeEntry(
                         index=idx,
