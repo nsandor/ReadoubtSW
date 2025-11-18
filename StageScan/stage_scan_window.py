@@ -11,7 +11,12 @@ from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
 from PySide6 import QtCore, QtWidgets, QtGui
 
-from Drivers.stage_driver import DummyXYStage, DummyRotationStage
+from Drivers.stage_driver import (
+    DummyRotationStage,
+    DummyXYStage,
+    NewportRotationStageAdapter,
+    NewportXYStageAdapter,
+)
 from ScannerWin.acquisition import AcquisitionSettings
 
 
@@ -319,8 +324,31 @@ class StageScanWindow(QtWidgets.QMainWindow):
     def __init__(self, main_window) -> None:
         super().__init__(parent=main_window)
         self._main = main_window
-        self._stage = DummyXYStage()
-        self._rotation_stage = DummyRotationStage()
+        self._stage_driver = getattr(main_window, "stage_driver", None)
+        xy_stage = getattr(main_window, "xy_stage", None)
+        rot_stage = getattr(main_window, "rotation_stage", None)
+        if isinstance(xy_stage, (DummyXYStage, NewportXYStageAdapter)):
+            self._stage = xy_stage
+        elif self._stage_driver:
+            self._stage = NewportXYStageAdapter(self._stage_driver)
+        else:
+            self._stage = DummyXYStage()
+        if isinstance(rot_stage, (DummyRotationStage, NewportRotationStageAdapter)):
+            self._rotation_stage = rot_stage
+        elif self._stage_driver:
+            self._rotation_stage = NewportRotationStageAdapter(self._stage_driver)
+        else:
+            self._rotation_stage = DummyRotationStage()
+        if isinstance(self._stage, DummyXYStage):
+            try:
+                self._stage.connect()
+            except Exception:
+                pass
+        if isinstance(self._rotation_stage, DummyRotationStage):
+            try:
+                self._rotation_stage.connect()
+            except Exception:
+                pass
         self._thread: Optional[QtCore.QThread] = None
         self._worker: Optional[StageScanWorker] = None
         self._composite = np.full((10, 10), np.nan)
@@ -335,6 +363,11 @@ class StageScanWindow(QtWidgets.QMainWindow):
         self._build_ui()
         self._update_manual_stage_controls()
         self._update_geometry_preview()
+        self._stage_status_timer = QtCore.QTimer(self)
+        self._stage_status_timer.setInterval(1500)
+        self._stage_status_timer.timeout.connect(self._refresh_stage_status_labels)
+        self._stage_status_timer.start()
+        QtCore.QTimer.singleShot(0, self._refresh_stage_status_labels)
 
     # ------------------------------------------------------------------ UI setup
     def _build_ui(self) -> None:
@@ -419,15 +452,49 @@ class StageScanWindow(QtWidgets.QMainWindow):
 
         return box
 
+    def _open_stage_controller(self) -> None:
+        if hasattr(self._main, "_open_stage_controller_window"):
+            self._main._open_stage_controller_window()
+
+    def _refresh_stage_status_labels(self) -> None:
+        driver = getattr(self._main, "stage_driver", None)
+        if driver and driver.is_connected():
+            xy_parts = []
+            for axis in ("x", "y"):
+                stage_name = driver.axis_assignment(axis) or "(unassigned)"
+                zero = "zeroed" if driver.axis_zeroed(axis) else "zero not set"
+                xy_parts.append(f"{axis.upper()} → {stage_name} ({zero})")
+            xy_text = "XY Stage: " + ", ".join(xy_parts)
+            theta_stage = driver.axis_assignment("theta") or "(unassigned)"
+            theta_zero = "zeroed" if driver.axis_zeroed("theta") else "zero not set"
+            rotation_text = f"Rotation Stage: {theta_stage} ({theta_zero})"
+        else:
+            xy_text = "XY Stage: controller disconnected"
+            rotation_text = "Rotation Stage: controller disconnected"
+            if driver is None:
+                xy_text = "XY Stage: dummy stage"
+                rotation_text = "Rotation Stage: dummy stage"
+        self.stage_status_label.setText(xy_text)
+        self.rotation_status_label.setText(rotation_text)
+
     def _build_stage_group(self) -> QtWidgets.QGroupBox:
         box = QtWidgets.QGroupBox("Stage Control")
         layout = QtWidgets.QVBoxLayout(box)
 
-        self.btn_connect_stage = QtWidgets.QPushButton("Connect Dummy Stage")
-        self.btn_connect_stage.clicked.connect(self._toggle_stage_connection)
-        layout.addWidget(self.btn_connect_stage)
+        self.btn_open_stage_controller = QtWidgets.QPushButton("Open Stage Controller…")
+        self.btn_open_stage_controller.clicked.connect(self._open_stage_controller)
+        layout.addWidget(self.btn_open_stage_controller)
 
-        self.btn_home_stage = QtWidgets.QPushButton("Home Stage")
+        self.stage_status_label = QtWidgets.QLabel("XY Stage: (not configured)")
+        layout.addWidget(self.stage_status_label)
+        self.rotation_status_label = QtWidgets.QLabel("Rotation Stage: (not configured)")
+        layout.addWidget(self.rotation_status_label)
+
+        self.btn_refresh_stage_status = QtWidgets.QPushButton("Refresh Stage Status")
+        self.btn_refresh_stage_status.clicked.connect(self._refresh_stage_status_labels)
+        layout.addWidget(self.btn_refresh_stage_status)
+
+        self.btn_home_stage = QtWidgets.QPushButton("Home XY Stage")
         self.btn_home_stage.clicked.connect(self._home_stage)
         layout.addWidget(self.btn_home_stage)
 
@@ -439,10 +506,6 @@ class StageScanWindow(QtWidgets.QMainWindow):
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self._stop_stage_scan)
         layout.addWidget(self.btn_stop)
-
-        self.btn_connect_rotation = QtWidgets.QPushButton("Connect Rotation Stage")
-        self.btn_connect_rotation.clicked.connect(self._toggle_rotation_connection)
-        layout.addWidget(self.btn_connect_rotation)
 
         self.btn_home_rotation = QtWidgets.QPushButton("Home Rotation Stage")
         self.btn_home_rotation.clicked.connect(self._home_rotation)
@@ -557,44 +620,28 @@ class StageScanWindow(QtWidgets.QMainWindow):
         return spin
 
     # ------------------------------------------------------------------ slots / helpers
-    def _toggle_stage_connection(self) -> None:
-        if self._stage.is_connected():
-            self._stage.disconnect()
-            self.btn_connect_stage.setText("Connect Dummy Stage")
-            self._append_log("Stage disconnected.")
-        else:
-            self._stage.connect()
-            self.btn_connect_stage.setText("Disconnect Stage")
-            self._append_log("Stage connected.")
-
     def _home_stage(self) -> None:
         if not self._ensure_stage_connected():
             return
         try:
             self._stage.home()
             self._append_log("Stage homed.")
+            self._refresh_stage_status_labels()
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Stage", f"Failed to home: {exc}")
-
-    def _toggle_rotation_connection(self) -> None:
-        if self._rotation_stage.is_connected():
-            self._rotation_stage.disconnect()
-            self.btn_connect_rotation.setText("Connect Rotation Stage")
-            self._append_log("Rotation stage disconnected.")
-        else:
-            self._rotation_stage.connect()
-            self.btn_connect_rotation.setText("Disconnect Rotation Stage")
-            self._append_log("Rotation stage connected.")
 
     def _home_rotation(self) -> None:
         if not self._rotation_stage.is_connected():
             QtWidgets.QMessageBox.warning(
-                self, "Rotation Stage", "Connect the rotation stage first."
+                self,
+                "Rotation Stage",
+                "Configure the rotation stage in the Stage Controller first.",
             )
             return
         try:
             self._rotation_stage.home()
             self._append_log("Rotation stage homed.")
+            self._refresh_stage_status_labels()
         except Exception as exc:
             QtWidgets.QMessageBox.critical(
                 self, "Rotation Stage", f"Failed to home rotation stage: {exc}"
@@ -602,13 +649,6 @@ class StageScanWindow(QtWidgets.QMainWindow):
 
     def _start_stage_scan(self) -> None:
         if self._worker is not None:
-            return
-        if not self._ensure_stage_connected():
-            return
-        if not self._rotation_stage.is_connected():
-            QtWidgets.QMessageBox.warning(
-                self, "Rotation Stage", "Connect the rotation stage before scanning."
-            )
             return
         if getattr(self._main, "_thread", None):
             QtWidgets.QMessageBox.warning(
@@ -639,6 +679,8 @@ class StageScanWindow(QtWidgets.QMainWindow):
             return
 
         rotation_steps = int(self.rotation_steps_spin.value())
+        if not self._validate_stage_ready(require_rotation=True):
+            return
         rotation_angles = self._build_rotation_angles(rotation_steps)
         self._rotation_angles = rotation_angles
         self._rotation_results = [None for _ in rotation_angles]
@@ -875,9 +917,9 @@ class StageScanWindow(QtWidgets.QMainWindow):
     def _set_busy_state(self, running: bool) -> None:
         self.btn_start.setEnabled(not running)
         self.btn_stop.setEnabled(running)
-        self.btn_connect_stage.setEnabled(not running)
+        self.btn_open_stage_controller.setEnabled(not running)
+        self.btn_refresh_stage_status.setEnabled(not running)
         self.btn_home_stage.setEnabled(not running)
-        self.btn_connect_rotation.setEnabled(not running)
         self.btn_home_rotation.setEnabled(not running)
         self.rotation_steps_spin.setEnabled(not running)
         if running:
@@ -952,9 +994,32 @@ class StageScanWindow(QtWidgets.QMainWindow):
         if self._stage.is_connected():
             return True
         QtWidgets.QMessageBox.warning(
-            self, "Stage", "Connect the stage before starting a scan."
+            self,
+            "Stage",
+            "Configure the stage in the Stage Controller window before starting a scan.",
         )
         return False
+
+    def _validate_stage_ready(self, require_rotation: bool) -> bool:
+        if self._manual_stage_enabled():
+            return True
+        driver = getattr(self._main, "stage_driver", None)
+        if driver:
+            ok, message = driver.ready_for_scan(require_rotation=require_rotation)
+            if ok:
+                return True
+            QtWidgets.QMessageBox.warning(self, "Stage", message)
+            return False
+        if not self._ensure_stage_connected():
+            return False
+        if require_rotation and not self._rotation_stage.is_connected():
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Rotation Stage",
+                "Configure the rotation stage in the Stage Controller before scanning.",
+            )
+            return False
+        return True
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         if self._worker:

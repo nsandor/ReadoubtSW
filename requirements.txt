@@ -11,6 +11,7 @@ pandas==2.3.3
 pillow==11.3.0
 Pint==0.25
 platformdirs==4.4.0
+newportxps==2025.1.0
 PyMeasure==0.15.0
 pyparsing==3.2.5
 pyqtgraph==0.13.7

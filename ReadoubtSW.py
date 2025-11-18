@@ -33,10 +33,16 @@ from Drivers.Keithley2400_drv import (
     ReadoutSafe2400,
 )
 from Drivers.Switchboard_drv import DummySwitchBoard, SwitchBoard
+from Drivers.stage_driver import (
+    NewportRotationStageAdapter,
+    NewportXPSStageDriver,
+    NewportXYStageAdapter,
+)
 from Readoubt_ui import Ui_MainWindow
 from Scanner import ScanWorker
 from ScannerWin.acquisition import AcquisitionSettings
 from Analysis.analysis_window import AnalysisWindow
+from StageScan.stage_controller_window import StageControllerWindow
 from StageScan.stage_scan_window import StageScanWindow
 
 
@@ -82,6 +88,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Readoubt")
         self.analysis_window: Optional[AnalysisWindow] = None
         self.stage_window: Optional[StageScanWindow] = None
+        self.stage_controller_window: Optional[StageControllerWindow] = None
         self.menu_analysis = self.ui.menuBar.addMenu("Analysis")
         self.action_open_analysis = QtGui.QAction("Open Analysis Window", self)
         self.menu_analysis.addAction(self.action_open_analysis)
@@ -90,6 +97,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.action_open_stage = QtGui.QAction("Open Stage Scan Window", self)
         self.menu_stage.addAction(self.action_open_stage)
         self.action_open_stage.triggered.connect(self._open_stage_scan_window)
+        self.action_open_stage_controller = QtGui.QAction("Open Stage Controller", self)
+        self.menu_stage.addAction(self.action_open_stage_controller)
+        self.action_open_stage_controller.triggered.connect(self._open_stage_controller_window)
 
         # ---- paths/state ----
         self.output_folder: Path = APP_DIR
@@ -129,6 +139,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sm = DummyKeithley2400()
         self.bias_sm = DummyBias2400()
         self.switch = DummySwitchBoard()
+        self.stage_driver = NewportXPSStageDriver()
+        self.xy_stage = NewportXYStageAdapter(self.stage_driver)
+        self.rotation_stage = NewportRotationStageAdapter(self.stage_driver)
         self.read_sm_idn = "Read SMU: (not connected)"
         self.bias_sm_idn = "Bias SMU: (not connected)"  # stub for future
         self.switch_idn = "Switch: (not connected)"
@@ -1850,6 +1863,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stage_window.show()
         self.stage_window.raise_()
         self.stage_window.activateWindow()
+
+    def _open_stage_controller_window(self):
+        if self.stage_controller_window is None:
+            try:
+                self.stage_controller_window = StageControllerWindow(self, self.stage_driver)
+            except Exception as exc:
+                logging.error(f"Failed to create stage controller window: {exc}")
+                QtWidgets.QMessageBox.critical(
+                    self, "Stage Controller", f"Failed to open stage controller window:\n{exc}"
+                )
+                self.stage_controller_window = None
+                return
+            self.stage_controller_window.destroyed.connect(self._clear_stage_controller_window)
+        self.stage_controller_window.show()
+        self.stage_controller_window.raise_()
+        self.stage_controller_window.activateWindow()
+
+    def _clear_stage_controller_window(self) -> None:
+        self.stage_controller_window = None
 
     # ---------------------- misc ----------------------
     def _update_integration_time_label(self):
