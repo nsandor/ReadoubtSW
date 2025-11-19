@@ -135,6 +135,7 @@ class NewportXPSStageDriver:
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
+        self._command_lock = threading.RLock()
         self._client: Optional[NewportXPS] = None
         self._settings = StageConnectionSettings()
         self._axes: Dict[str, StageAxisState] = {
@@ -157,28 +158,32 @@ class NewportXPSStageDriver:
             raise StageDriverError(
                 "The newportxps package is not installed. Install it to control the stage."
             )
+        self.disconnect()
+        try:
+            client = NewportXPS(
+                host=self._settings.host,
+                port=self._settings.port,
+                username=self._settings.username,
+                password=self._settings.password,
+                timeout=self._settings.timeout_s,
+            )
+        except Exception as exc:  # pragma: no cover - hardware specific
+            raise StageDriverError(f"Failed to connect to XPS controller: {exc}") from exc
         with self._lock:
-            self.disconnect()
-            try:
-                self._client = NewportXPS(
-                    host=self._settings.host,
-                    port=self._settings.port,
-                    username=self._settings.username,
-                    password=self._settings.password,
-                    timeout=self._settings.timeout_s,
-                )
-            except Exception as exc:  # pragma: no cover - hardware specific
-                self._client = None
-                raise StageDriverError(f"Failed to connect to XPS controller: {exc}") from exc
+            self._client = client
 
     def disconnect(self) -> None:
+        client = None
         with self._lock:
             if self._client is not None:
+                client = self._client
+                self._client = None
+        if client:
+            with self._command_lock:  # ensure no other command is issued concurrently
                 try:
-                    self._client.disconnect()
+                    client.disconnect()
                 except Exception:
                     pass
-            self._client = None
 
     def is_connected(self) -> bool:
         with self._lock:
@@ -187,16 +192,20 @@ class NewportXPSStageDriver:
     # ------------------------------------------------------------------ axis/assignment helpers
     def available_stage_names(self) -> List[str]:
         with self._lock:
-            if not self._client:
-                return []
-            return sorted(self._client.stages.keys())
+            client = self._client
+        if not client:
+            return []
+        with self._command_lock:
+            return sorted(client.stages.keys())
 
     def describe_stages(self) -> List[Dict[str, str]]:
         with self._lock:
-            if not self._client:
-                return []
-            out: List[Dict[str, str]] = []
-            for name, meta in self._client.stages.items():
+            client = self._client
+        if not client:
+            return []
+        out: List[Dict[str, str]] = []
+        with self._command_lock:
+            for name, meta in client.stages.items():
                 out.append(
                     {
                         "name": name,
@@ -204,15 +213,18 @@ class NewportXPSStageDriver:
                         "group": name.split(".")[0] if "." in name else "",
                     }
                 )
-            return out
+        return out
 
     def assign_axis(self, axis: str, stage_name: Optional[str]) -> None:
         state = self._axis_state(axis)
         with self._lock:
+            client = self._client
             if stage_name:
-                if not self._client:
+                if not client:
                     raise StageDriverError("Connect to the controller before assigning stages.")
-                if stage_name not in self._client.stages:
+                with self._command_lock:
+                    available = set(client.stages.keys())
+                if stage_name not in available:
                     raise StageDriverError(f"Stage '{stage_name}' is not available on the controller.")
             state.stage_name = stage_name or None
             state.zero_reference = None
@@ -256,7 +268,8 @@ class NewportXPSStageDriver:
         if not client or not stage_name or zero is None:
             return None
         try:
-            absolute = client.get_stage_position(stage_name)
+            with self._command_lock:
+                absolute = client.get_stage_position(stage_name)
         except Exception as exc:
             raise StageDriverError(
                 f"Failed to read {state.display_name} position: {exc}"
@@ -271,7 +284,8 @@ class NewportXPSStageDriver:
         if not client or not stage_name:
             return None
         try:
-            return client.get_stage_position(stage_name)
+            with self._command_lock:
+                return client.get_stage_position(stage_name)
         except Exception as exc:
             raise StageDriverError(
                 f"Failed to read {state.display_name} position: {exc}"
@@ -284,7 +298,8 @@ class NewportXPSStageDriver:
             stage_name = state.stage_name
         if not client or not stage_name:
             raise StageDriverError(f"Assign a stage to {state.display_name} before zeroing it.")
-        position = client.get_stage_position(stage_name)
+        with self._command_lock:
+            position = client.get_stage_position(stage_name)
         state.zero_reference = position
 
     def zero_all_axes(self) -> None:
@@ -305,9 +320,10 @@ class NewportXPSStageDriver:
         if zero is None:
             raise StageDriverError(f"Zero the {state.display_name} before moving it.")
         absolute = position + zero
-        client.move_stage(stage_name, absolute)
-        if wait:
-            self._wait_for_stage(stage_name, absolute)
+        with self._command_lock:
+            client.move_stage(stage_name, absolute)
+            if wait:
+                self._wait_for_stage_locked(client, stage_name, absolute)
 
     def jog_axis(self, axis: str, delta: float) -> None:
         current = self.axis_position(axis)
@@ -333,8 +349,9 @@ class NewportXPSStageDriver:
         group = self._group_for_stage(stage_name)
         if not group:
             raise StageDriverError(f"Unable to infer the group name for stage '{stage_name}'.")
-        client.home_group(group=group)
-        self._wait_for_group(group)
+        with self._command_lock:
+            client.home_group(group=group)
+            self._wait_for_group_locked(client, group)
         state.zero_reference = None
 
     def home_xy(self) -> None:
@@ -381,13 +398,9 @@ class NewportXPSStageDriver:
             return stage_name.split(".")[0]
         return None
 
-    def _wait_for_group(self, group: str, timeout: float = 120.0) -> None:
+    def _wait_for_group_locked(self, client: NewportXPS, group: str, timeout: float = 120.0) -> None:
         start = time.monotonic()
         while True:
-            with self._lock:
-                client = self._client
-            if not client:
-                return
             status = client.get_group_status().get(group, "")
             text = (status or "").lower()
             if any(token in text for token in ("ready", "standby", "idle")):
@@ -398,14 +411,10 @@ class NewportXPSStageDriver:
                 raise StageDriverError(f"Timed out waiting for group '{group}' to become ready.")
             time.sleep(0.1)
 
-    def _wait_for_stage(self, stage_name: str, absolute_target: float, timeout: float = 120.0) -> None:
+    def _wait_for_stage_locked(self, client: NewportXPS, stage_name: str, absolute_target: float, timeout: float = 120.0) -> None:
         group = self._group_for_stage(stage_name)
         start = time.monotonic()
         while True:
-            with self._lock:
-                client = self._client
-            if not client:
-                return
             position = client.get_stage_position(stage_name)
             if abs(position - absolute_target) <= 1e-4:
                 if not group:
