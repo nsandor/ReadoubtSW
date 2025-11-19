@@ -4,14 +4,8 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
+from newportxps import NewportXPS
 
-try:
-    from newportxps import NewportXPS, XPSException
-except ImportError:  # pragma: no cover - fallback when driver is unavailable
-    NewportXPS = None  # type: ignore
-
-    class XPSException(Exception):
-        pass
 
 
 @dataclass
