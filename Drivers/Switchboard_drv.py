@@ -1,5 +1,7 @@
 import logging
 import re
+import threading
+import time
 from typing import List, Tuple
 
 import serial
@@ -17,6 +19,13 @@ class SwitchBoard:
         self.ser = serial.Serial(port, baudrate=baud, timeout=timeout)
         self._local_mode = False
         self._last_voltage = None
+        self._io_lock = threading.RLock()
+        try:
+            time.sleep(0.5)
+            if hasattr(self.ser, "reset_input_buffer"):
+                self.ser.reset_input_buffer()
+        except Exception:
+            pass
         self._drain_lines(max_lines=15)
 
     def _readline(self) -> str:
@@ -52,80 +61,86 @@ class SwitchBoard:
     def route(self, idx: int):
         if not 1 <= idx <= 100:
             raise ValueError("Pixel index must be 1-100")
-        self._ensure_external_mode()
-        logger.debug("SwitchBoard ROUTE -> %s", idx)
-        self.ser.write(f"{idx}\n".encode())
-        resp = self._readline()
-        if "ACK" not in resp.upper():
-            raise TimeoutError(
-                f"Switch did not ACK for pixel {idx}. Response: {resp}"
-            )
+        with self._io_lock:
+            self._ensure_external_mode()
+            logger.debug("SwitchBoard ROUTE -> %s", idx)
+            self.ser.write(f"{idx}\n".encode())
+            resp = self._readline()
+            if "ACK" not in resp.upper():
+                raise TimeoutError(
+                    f"Switch did not ACK for pixel {idx}. Response: {resp}"
+                )
 
     def set_led(self, enabled: bool):
         cmd = "LED ON" if enabled else "LED OFF"
-        logger.info("SwitchBoard %s", cmd)
-        self.ser.write(f"{cmd}\n".encode())
-        self._drain_lines(max_lines=2)
+        with self._io_lock:
+            logger.info("SwitchBoard %s", cmd)
+            self.ser.write(f"{cmd}\n".encode())
+            self._drain_lines(max_lines=2)
 
     def set_settle_time(self, milliseconds: int) -> int:
         value = max(0, int(milliseconds))
-        logger.info("SwitchBoard SETTLE %s ms", value)
-        self.ser.write(f"SETTLE {value}\n".encode())
-        try:
-            self._readline()
-        except Exception:
-            pass
+        with self._io_lock:
+            logger.info("SwitchBoard SETTLE %s ms", value)
+            self.ser.write(f"SETTLE {value}\n".encode())
+            try:
+                self._readline()
+            except Exception:
+                pass
         return value
 
     def set_local_voltage(self, voltage: float) -> float:
         value = float(voltage)
         if not (6.0 <= value <= 87.0):
             raise ValueError("Local bias must be between 6 V and 87 V")
-        logger.info("SwitchBoard SETVOLT %.3f", value)
-        self.ser.write(f"SETVOLT {value:.3f}\n".encode())
-        for _ in range(4):
-            try:
-                line = self._readline()
-            except TimeoutError:
-                break
-            parsed = self._extract_float(line)
-            if parsed is not None:
-                self._last_voltage = parsed
-                return parsed
+        with self._io_lock:
+            logger.info("SwitchBoard SETVOLT %.3f", value)
+            self.ser.write(f"SETVOLT {value:.3f}\n".encode())
+            for _ in range(4):
+                try:
+                    line = self._readline()
+                except TimeoutError:
+                    break
+                parsed = self._extract_float(line)
+                if parsed is not None:
+                    self._last_voltage = parsed
+                    return parsed
         self._last_voltage = value
         return value
 
     def measure_local(self, n_samples=None, progress_cb=None) -> Tuple[List[float], float]:
         if n_samples is None:
             n_samples = 1
-        logger.info("SwitchBoard MEASURE_LOCAL %s samples", n_samples)
-        self.ser.flush()
-        self.ser.write(f"MEASURE_LOCAL {n_samples}\n".encode())
-        floats: List[float] = []
-        self.ser.timeout = None
-        data_points = 100
-        while len(floats) < data_points + 1:
-            line = self._readline()
-            try:
-                value = float(line)
-            except ValueError:
-                # Skip informational lines produced by GPIO helpers.
-                pass
-            else:
-                floats.append(value)
-                if progress_cb and len(floats) <= data_points:
-                    try:
-                        progress_cb(len(floats), data_points)
-                    except Exception:
-                        pass
-        self._local_mode = True
-        runtime_ms = floats[-1]
-        currents_nanoamps = floats[:-1]
-        return currents_nanoamps, runtime_ms
+        with self._io_lock:
+            logger.info("SwitchBoard MEASURE_LOCAL %s samples", n_samples)
+            self.ser.flush()
+            self.ser.write(f"MEASURE_LOCAL {n_samples}\n".encode())
+            floats: List[float] = []
+            self.ser.timeout = None
+            data_points = 100
+            while len(floats) < data_points + 1:
+                line = self._readline()
+                try:
+                    value = float(line)
+                except ValueError:
+                    # Skip informational lines produced by GPIO helpers.
+                    pass
+                else:
+                    floats.append(value)
+                    if progress_cb and len(floats) <= data_points:
+                        try:
+                            progress_cb(len(floats), data_points)
+                        except Exception:
+                            pass
+            self._local_mode = True
+            runtime_ms = floats[-1]
+            currents_nanoamps = floats[:-1]
+            return currents_nanoamps, runtime_ms
 
     def close(self):
-        logger.info("SwitchBoard serial connection closed")
-        self.ser.close()
+        with self._io_lock:
+            logger.info("SwitchBoard serial connection closed")
+            self.ser.close()
 
 
 class DummySwitchBoard:

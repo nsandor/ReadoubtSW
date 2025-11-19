@@ -72,8 +72,15 @@ bool verbose = true;
 bool local = false;
 float calValue;
 int settleTime = 4; //ms
-int inactiveChannels = [];;
+int inactiveChannels = {};
+float leakageMap[100] = {};
+float alphaMap[100] = {};
+float betaMap[100] = {};
+
+
 /* ─── Low-level helpers (shift reg / LED matrix) ───────────────── */
+
+
 
 void clearRegister() {
   digitalWrite(PIN_OE, HIGH);

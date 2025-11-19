@@ -1465,7 +1465,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_statusbar(text="Scan finished.")
         self._update_loop_scrub_state()
         self._reset_loop_progress_bar()
-        if self.analysis_window and self._run_folder:
+        data_ready = (
+            self._run_folder
+            and (self._run_folder / "data").exists()
+        )
+        if self.analysis_window and data_ready:
             try:
                 self.analysis_window.set_run_folder(self._run_folder, auto_load=True)
             except Exception as exc:

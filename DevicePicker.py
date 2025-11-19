@@ -1,5 +1,5 @@
 import pyvisa
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 from serial.tools import list_ports
 
 
@@ -120,10 +120,19 @@ class DevicePicker(QtWidgets.QDialog):
         self._populate()
 
     def _populate(self):
+        progress = QtWidgets.QProgressDialog("Scanning devices…", None, 0, 0, self)
+        progress.setWindowTitle("Scanning devices")
+        progress.setCancelButton(None)
+        progress.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
+        progress.show()
+        QtWidgets.QApplication.processEvents()
         self.combo.clear()
         self._items = []
-        visa_items = _scan_visa_resources()
-        serial_items = _scan_serial_ports()
+        try:
+            visa_items = _scan_visa_resources()
+            serial_items = _scan_serial_ports()
+        finally:
+            progress.close()
         if visa_items:
             self.combo.addItem("— VISA resources —")
             self.combo.model().item(self.combo.count() - 1).setEnabled(False)

@@ -14,7 +14,7 @@ from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.colors import Normalize, to_hex
 import matplotlib.pyplot as plt
-from PySide6 import QtCore, QtWidgets, QtGui
+from PySide6 import QtCore, QtWidgets
 
 # Type aliases
 PixelParser = Callable[[str], Sequence[int]]
@@ -50,49 +50,6 @@ class MatplotlibCanvas(FigureCanvas):
         self.figure.clf()
         self.ax = self.figure.add_subplot(111)
 
-
-def _agg_average(values: np.ndarray) -> float:
-    valid = values[np.isfinite(values)]
-    if valid.size == 0:
-        return math.nan
-    return float(valid.mean())
-
-
-def _agg_sum(values: np.ndarray) -> float:
-    valid = values[np.isfinite(values)]
-    if valid.size == 0:
-        return math.nan
-    return float(valid.sum())
-
-
-def _agg_median(values: np.ndarray) -> float:
-    valid = values[np.isfinite(values)]
-    if valid.size == 0:
-        return math.nan
-    return float(np.median(valid))
-
-
-def _agg_min(values: np.ndarray) -> float:
-    valid = values[np.isfinite(values)]
-    if valid.size == 0:
-        return math.nan
-    return float(valid.min())
-
-
-def _agg_max(values: np.ndarray) -> float:
-    valid = values[np.isfinite(values)]
-    if valid.size == 0:
-        return math.nan
-    return float(valid.max())
-
-
-AGGREGATORS: dict[str, Callable[[np.ndarray], float]] = {
-    "Average": _agg_average,
-    "Sum": _agg_sum,
-    "Median": _agg_median,
-    "Min": _agg_min,
-    "Max": _agg_max,
-}
 
 COLOR_SCHEME_MAP = {
     "Default": None,
@@ -201,12 +158,6 @@ class AnalysisWindow(QtWidgets.QMainWindow):
         self.dataset_combo.currentIndexChanged.connect(self._on_dataset_changed)
         settings_form.addRow("Dataset:", self.dataset_combo)
 
-        self.plot_mode_combo = QtWidgets.QComboBox()
-        self.plot_mode_combo.addItem("Aggregate selection", userData="aggregate")
-        self.plot_mode_combo.addItem("Individual pixel curves", userData="individual")
-        self.plot_mode_combo.currentIndexChanged.connect(self._on_plot_mode_changed)
-        settings_form.addRow("Plot Mode:", self.plot_mode_combo)
-
         self.time_axis_combo = QtWidgets.QComboBox()
         self.time_axis_combo.addItem("Elapsed seconds", userData="elapsed")
         self.time_axis_combo.addItem("Loop index", userData="index")
@@ -214,11 +165,6 @@ class AnalysisWindow(QtWidgets.QMainWindow):
 
         self.pixel_spec_edit = QtWidgets.QLineEdit("1-100")
         settings_form.addRow("Pixels:", self.pixel_spec_edit)
-
-        self.aggregate_combo = QtWidgets.QComboBox()
-        for name in AGGREGATORS:
-            self.aggregate_combo.addItem(name)
-        settings_form.addRow("Combine:", self.aggregate_combo)
 
         self.color_scheme_combo = QtWidgets.QComboBox()
         for label in ["Default", "Tab10", "Tab20", "Viridis", "Plasma", "Inferno", "Magma", "Cividis", "Rainbow"]:
@@ -255,6 +201,10 @@ class AnalysisWindow(QtWidgets.QMainWindow):
         self.marker_size_spin.setSingleStep(1.0)
         self.marker_size_spin.setValue(6.0)
         settings_form.addRow("Marker Size:", self.marker_size_spin)
+
+        self.plot_title_edit = QtWidgets.QLineEdit("")
+        self.plot_title_edit.setPlaceholderText("Leave blank for automatic title")
+        settings_form.addRow("Plot Title:", self.plot_title_edit)
 
         grid_box = QtWidgets.QWidget()
         grid_layout = QtWidgets.QHBoxLayout(grid_box)
@@ -361,12 +311,10 @@ class AnalysisWindow(QtWidgets.QMainWindow):
 
         self.tabs.addTab(tab, "Curves")
         self._on_dataset_changed()
-        self._on_plot_mode_changed()
         self._auto_refresh_curve()
 
     def _initialize_auto_refresh_connections(self) -> None:
         controls = [
-            self.aggregate_combo,
             self.color_scheme_combo,
             self.legend_checkbox,
             self.time_axis_combo,
@@ -383,6 +331,7 @@ class AnalysisWindow(QtWidgets.QMainWindow):
             self.ymin_edit,
             self.ymax_edit,
             self.pixel_spec_edit,
+            self.plot_title_edit,
         ]
         for widget in controls:
             self._connect_auto_refresh(widget)
@@ -608,10 +557,13 @@ class AnalysisWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------ public helpers
     def set_run_folder(self, folder: Path, *, auto_load: bool = False) -> None:
         """Expose ability to inject a folder from the main window."""
-        self.curve_folder_edit.setText(str(folder))
+        folder = Path(folder)
+        data_folder = folder / "data"
+        target = data_folder if data_folder.is_dir() else folder
+        self.curve_folder_edit.setText(str(target))
         self.video_folder_edit.setText(str(folder))
         if auto_load:
-            self._load_run_folder(folder)
+            self._load_run_folder(target)
 
     # ------------------------------------------------------------------ events / slots
     def _browse_curve_folder(self) -> None:
@@ -748,41 +700,12 @@ class AnalysisWindow(QtWidgets.QMainWindow):
         self._plot_curve()
 
     def _update_dataset_availability(self) -> None:
-        has_time = bool(self._time_entries)
         has_voltage = bool(self._voltage_entries)
-        dataset_flags = (has_time, has_voltage)
-        model = self.dataset_combo.model()
-        if isinstance(model, QtGui.QStandardItemModel):
-            for row, enabled in enumerate(dataset_flags):
-                item = model.item(row)
-                if item is not None:
-                    item.setEnabled(bool(enabled))
-        view = self.dataset_combo.view()
-        if view is not None:
-            for row, enabled in enumerate(dataset_flags):
-                view.setRowHidden(row, not enabled)
-
-        if not has_time and self.dataset_combo.currentData() == "time" and has_voltage:
-            self.dataset_combo.setCurrentIndex(1)
-        elif not has_voltage and self.dataset_combo.currentData() == "voltage" and has_time:
-            self.dataset_combo.setCurrentIndex(0)
-        elif not has_time and not has_voltage:
-            self.curve_canvas.clear()
-            self.curve_canvas.draw_idle()
-
         self.compute_res_btn.setEnabled(has_voltage and len(self._voltage_entries) >= 2)
 
     def _on_dataset_changed(self) -> None:
         is_time = self.dataset_combo.currentData() == "time"
         self.time_axis_combo.setVisible(is_time)
-        self._on_plot_mode_changed()
-
-    def _on_plot_mode_changed(self) -> None:
-        plot_mode = self.plot_mode_combo.currentData()
-        aggregate = plot_mode == "aggregate"
-        self.aggregate_combo.setEnabled(aggregate)
-        self.legend_checkbox.setEnabled(True)
-        self.color_scheme_combo.setEnabled(True)
         self._auto_refresh_curve()
 
     def _plot_curve(self) -> None:
@@ -806,9 +729,6 @@ class AnalysisWindow(QtWidgets.QMainWindow):
             self._show_curve_warning("Pixels", str(exc))
             return
 
-        agg_name = self.aggregate_combo.currentText()
-        plot_mode = self.plot_mode_combo.currentData()
-
         self.curve_canvas.clear()
         ax = self.curve_canvas.ax
 
@@ -816,78 +736,40 @@ class AnalysisWindow(QtWidgets.QMainWindow):
         legend_labels: list[str] = []
         axis_x: list[float] = []
         axis_y: list[float] = []
-        if plot_mode == "aggregate":
-            agg_fn = AGGREGATORS.get(agg_name)
-            if not agg_fn:
-                self._show_curve_warning("Combine", f"Unknown aggregator: {agg_name}")
-                return
-            x_vals, y_vals = self._compute_curve_points(entries, dataset_kind, pixel_indices, agg_fn)
-            if not x_vals:
-                self.curve_canvas.draw_idle()
-                self.curve_stats_label.setText("No valid data points for the current selection.")
-                return
-            line_style = self.line_style_combo.currentData() or "-"
-            marker = self.marker_combo.currentData() or None
-            line_width = float(self.line_width_spin.value())
-            marker_size = float(self.marker_size_spin.value())
-            color = self._get_colors(1)[0]
-            plot_kwargs = dict(
-                marker=marker or None,
-                linestyle=line_style,
-                linewidth=line_width,
-                markersize=marker_size,
-            )
+        per_pixel = self._compute_per_pixel_curves(entries, dataset_kind, pixel_indices)
+        if not per_pixel:
+            self.curve_canvas.draw_idle()
+            self.curve_stats_label.setText("No finite values for selected pixels.")
+            return
+        colors = self._get_colors(len(per_pixel))
+        all_values: list[float] = []
+        line_style = self.line_style_combo.currentData() or "-"
+        marker = self.marker_combo.currentData() or None
+        line_width = float(self.line_width_spin.value())
+        marker_size = float(self.marker_size_spin.value())
+        plot_kwargs = dict(
+            marker=marker or None,
+            linestyle=line_style,
+            linewidth=line_width,
+            markersize=marker_size,
+        )
+        for (idx, (xs, ys)), color in zip(per_pixel.items(), colors):
             if color:
-                ax.plot(x_vals, y_vals, color=color, label="Selection", **plot_kwargs)
+                ax.plot(xs, ys, color=color, label=f"Pixel {idx}", **plot_kwargs)
             else:
-                ax.plot(x_vals, y_vals, label="Selection", **plot_kwargs)
-            stats = np.array(y_vals, dtype=float)
-            stats = stats[np.isfinite(stats)]
-            if stats.size:
-                stats_message = (
-                    f"Points: {stats.size}    Min: {stats.min():.3e} A    "
-                    f"Max: {stats.max():.3e} A    Mean: {stats.mean():.3e} A"
-                )
-            else:
-                stats_message = "All curve points are NaN."
-            legend_labels = ["Selection"]
-            axis_x = list(x_vals)
-            axis_y = list(y_vals)
-        else:
-            per_pixel = self._compute_per_pixel_curves(entries, dataset_kind, pixel_indices)
-            if not per_pixel:
-                self.curve_canvas.draw_idle()
-                self.curve_stats_label.setText("No finite values for selected pixels.")
-                return
-            colors = self._get_colors(len(per_pixel))
-            all_values: list[float] = []
-            line_style = self.line_style_combo.currentData() or "-"
-            marker = self.marker_combo.currentData() or None
-            line_width = float(self.line_width_spin.value())
-            marker_size = float(self.marker_size_spin.value())
-            plot_kwargs = dict(
-                marker=marker or None,
-                linestyle=line_style,
-                linewidth=line_width,
-                markersize=marker_size,
+                ax.plot(xs, ys, label=f"Pixel {idx}", **plot_kwargs)
+            legend_labels.append(f"Pixel {idx}")
+            all_values.extend(ys)
+            axis_x.extend(xs)
+            axis_y.extend(ys)
+        if all_values:
+            arr = np.array(all_values, dtype=float)
+            stats_message = (
+                f"Curves: {len(per_pixel)}    Samples: {arr.size}    "
+                f"Min: {np.nanmin(arr):.3e} A    Max: {np.nanmax(arr):.3e} A"
             )
-            for (idx, (xs, ys)), color in zip(per_pixel.items(), colors):
-                if color:
-                    ax.plot(xs, ys, color=color, label=f"Pixel {idx}", **plot_kwargs)
-                else:
-                    ax.plot(xs, ys, label=f"Pixel {idx}", **plot_kwargs)
-                legend_labels.append(f"Pixel {idx}")
-                all_values.extend(ys)
-                axis_x.extend(xs)
-                axis_y.extend(ys)
-            if all_values:
-                arr = np.array(all_values, dtype=float)
-                stats_message = (
-                    f"Curves: {len(per_pixel)}    Samples: {arr.size}    "
-                    f"Min: {np.nanmin(arr):.3e} A    Max: {np.nanmax(arr):.3e} A"
-                )
-            else:
-                stats_message = "All pixel curves are empty."
+        else:
+            stats_message = "All pixel curves are empty."
 
         if dataset_kind == "voltage":
             ax.set_xlabel("Bias Voltage (V)")
@@ -895,11 +777,9 @@ class AnalysisWindow(QtWidgets.QMainWindow):
             axis_mode = self.time_axis_combo.currentData()
             ax.set_xlabel("Elapsed time (s)" if axis_mode == "elapsed" else "Loop index")
         ax.set_ylabel("Current (A)")
-        if plot_mode == "aggregate":
-            mode_title = f"Aggregate • {agg_name}"
-        else:
-            mode_title = "Individual Pixels"
-        ax.set_title(f"Current vs {'Voltage' if dataset_kind == 'voltage' else 'Time'} ({mode_title})")
+        default_title = f"Current vs {'Voltage' if dataset_kind == 'voltage' else 'Time'} (Individual Pixels)"
+        custom_title = (self.plot_title_edit.text() or "").strip()
+        ax.set_title(custom_title or default_title)
 
         if self.legend_checkbox.isChecked() and legend_labels:
             ax.legend()
