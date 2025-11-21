@@ -14,6 +14,7 @@ class ScanWorker(QtCore.QObject):
     loopStarted = Signal(int, object)
     loopFinished = Signal(int, object)
     loopProgress = Signal(int, int, int)
+    pixelExcluded = Signal(int, float, int)
     deviceError = Signal(str)
     finished = Signal()
 
@@ -35,6 +36,7 @@ class ScanWorker(QtCore.QObject):
         constant_bias_voltage: Optional[float] = None,
         use_local_readout: bool = False,
         use_local_bias: bool = False,
+        current_limit: Optional[float] = None,
     ):
         super().__init__()
         self._sm = sm
@@ -61,12 +63,31 @@ class ScanWorker(QtCore.QObject):
             self._loops = len(self._voltage_points)
         self._use_local_readout = bool(use_local_readout)
         self._use_local_bias = bool(use_local_bias)
+        self._current_limit = float(current_limit) if current_limit is not None else None
+        self._excluded_pixels: set[int] = set()
         self._per_loop_total = max(1, len(self._pixels) or 1)
 
     def _emit_loop_progress(self, loop_idx: int, done: int, total: Optional[int] = None):
         total_count = max(1, int(total if total is not None else self._per_loop_total))
         done_count = max(0, min(int(done), total_count))
         self.loopProgress.emit(loop_idx, done_count, total_count)
+
+    def _check_limit(self, pixel: int, value: float, loop_idx: int) -> bool:
+        if self._current_limit is None:
+            return False
+        try:
+            over_limit = abs(float(value)) > self._current_limit
+        except Exception:
+            return False
+        if not over_limit:
+            return False
+        if pixel not in self._excluded_pixels:
+            self._excluded_pixels.add(int(pixel))
+            try:
+                self.pixelExcluded.emit(int(pixel), float(value), int(loop_idx))
+            except Exception:
+                pass
+        return True
 
     @QtCore.Slot()
     def run(self):
@@ -105,6 +126,10 @@ class ScanWorker(QtCore.QObject):
             self.deviceError.emit("No bias source configured for requested scan")
             self.finished.emit()
             return
+        if self._current_limit is not None:
+            DEVICE_LOGGER.info(
+                "Current limit enabled: %.3e A (absolute value)", self._current_limit
+            )
 
         if sweep_mode:
             loop_plan = [
@@ -122,6 +147,11 @@ class ScanWorker(QtCore.QObject):
             for loop_idx, voltage in loop_plan:
                 if self._stop:
                     break
+                active_pixels = [p for p in self._pixels if p not in self._excluded_pixels]
+                if not active_pixels:
+                    DEVICE_LOGGER.info("All pixels excluded by current limit; ending scan.")
+                    break
+                self._per_loop_total = max(1, len(active_pixels))
                 requested_voltage = voltage
                 applied_voltage = None
                 if bias_mode and voltage is not None:
@@ -188,18 +218,20 @@ class ScanWorker(QtCore.QObject):
                     if self._stop:
                         break
                     runtime_ms = runtime_total_ms
-                    for p in self._pixels:
+                    for p in active_pixels:
                         if self._stop:
                             break
                         idx = p - 1
                         if idx < 0 or idx >= len(avg_currents):
                             continue
-                        nanoamps = avg_currents[idx]
-                        loop_results.append((p, float(nanoamps) * 1e-9))
-                    total_points = max(1, len(avg_currents))
-                    self._emit_loop_progress(loop_idx, total_points, total_points)
+                        current_a = float(avg_currents[idx]) * 1e-9
+                        limit_hit = self._check_limit(p, current_a, loop_idx)
+                        loop_results.append((p, np.nan if limit_hit else current_a))
+                    active_count = len(active_pixels)
+                    self._emit_loop_progress(loop_idx, active_count, active_count or 1)
                 else:
-                    for p in self._pixels:
+                    active_total = len(active_pixels) or 1
+                    for p in active_pixels:
                         while self._paused and not self._stop:
                             QtCore.QThread.msleep(100)
                         if self._stop:
@@ -218,11 +250,15 @@ class ScanWorker(QtCore.QObject):
                             self.deviceError.emit(f"Switch connection lost: {e}")
                             raise
                         vals = []
+                        limit_hit = False
                         for _ in range(self._n):
                             if self._stop:
                                 break
                             try:
                                 val = -1*float(self._sm.current) # We need to invert, as the sourcemeter ammeter is set up to see currents leaving it as positive.
+                                limit_hit = self._check_limit(p, val, loop_idx)
+                                if limit_hit:
+                                    break
                                 if self._delay_s > 0:
                                     self._sleep_with_stop(
                                         self._delay_s, allow_pause=True
@@ -235,8 +271,11 @@ class ScanWorker(QtCore.QObject):
                             vals.append(val)
                         if self._stop:
                             break
-                        loop_results.append((p, float(np.mean(vals))))
-                        self._emit_loop_progress(loop_idx, len(loop_results), len(self._pixels) or 1)
+                        value = np.nan
+                        if vals and not limit_hit:
+                            value = float(np.mean(vals))
+                        loop_results.append((p, value))
+                        self._emit_loop_progress(loop_idx, len(loop_results), active_total)
 
                 if self._stop:
                     break

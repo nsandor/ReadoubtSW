@@ -137,6 +137,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.device_logger = DEVICE_LOGGER
         self._loop_progress_total: int = 0
         self._scan_pixel_count: int = 0
+        self._current_limit: Optional[float] = None
+        self._excluded_pixels: set[int] = set()
+        self._scan_loop_count: int = 0
 
         # ---- instruments (dummy by default) ----
         self.sm = DummyKeithley2400()
@@ -187,6 +190,15 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._toggle_manual_current_range(
             self.ui.check_auto_current_range.isChecked()
+        )
+        self.ui.label_current_limit = QtWidgets.QLabel("Current limit (A):")
+        self.ui.label_current_limit.setObjectName("label_current_limit")
+        self.ui.edit_current_limit = QtWidgets.QLineEdit()
+        self.ui.edit_current_limit.setObjectName("edit_current_limit")
+        self.ui.edit_current_limit.setPlaceholderText("Leave blank to disable")
+        row_idx = self.ui.formLayout_2.rowCount()
+        self.ui.formLayout_2.insertRow(
+            row_idx, self.ui.label_current_limit, self.ui.edit_current_limit
         )
         self._update_integration_time_label()
         self._loop_control_widgets = [
@@ -933,6 +945,18 @@ class MainWindow(QtWidgets.QMainWindow):
             raise ValueError("Manual range must be positive (A).")
         return False, float(value)
 
+    def _collect_current_limit(self) -> Optional[float]:
+        text = (self.ui.edit_current_limit.text() or "").strip()
+        if not text:
+            return None
+        try:
+            value = float(text)
+        except Exception as exc:
+            raise ValueError("Current limit must be numeric (A).") from exc
+        if value <= 0:
+            raise ValueError("Current limit must be positive (A).")
+        return float(value)
+
     def _build_acquisition_settings(self) -> AcquisitionSettings:
         try:
             pixels = self._parse_pixel_spec(self.ui.edit_pixel_spec.text())
@@ -973,6 +997,10 @@ class MainWindow(QtWidgets.QMainWindow):
         loops = int(loops)
         if loops <= 0:
             raise ValueError("At least one loop is required.")
+        try:
+            current_limit = self._collect_current_limit()
+        except Exception as exc:
+            raise ValueError(f"Current limit invalid: {exc}") from exc
 
         use_local_readout = self._using_local_readout()
         use_local_bias = self._using_local_bias()
@@ -985,6 +1013,7 @@ class MainWindow(QtWidgets.QMainWindow):
             inter_loop_delay_s=max(0.0, float(inter_loop_delay)),
             auto_range=auto_range,
             current_range=float(current_range),
+            current_limit=current_limit,
             measurement_mode="voltage" if voltage_mode else "time",
             voltage_steps=list(voltage_steps or []) if voltage_mode else None,
             voltage_settle_s=settle_time if voltage_mode else 0.0,
@@ -1079,6 +1108,10 @@ class MainWindow(QtWidgets.QMainWindow):
             metadata["constant_bias_voltage"] = float(self._constant_bias_voltage)
         if self._voltage_sequence:
             metadata["voltage_sequence_count"] = len(self._voltage_sequence)
+        if self._current_limit is not None:
+            metadata["current_limit_a"] = float(self._current_limit)
+        if self._excluded_pixels:
+            metadata["excluded_pixels"] = sorted(int(x) for x in self._excluded_pixels)
         metadata["pixel_spec"] = self.ui.edit_pixel_spec.text()
         return metadata
 
@@ -1170,6 +1203,8 @@ class MainWindow(QtWidgets.QMainWindow):
         pixels = acquisition.pixels
         auto_rng = acquisition.auto_range
         cur_rng = acquisition.current_range
+        self._excluded_pixels = set()
+        self._current_limit = acquisition.current_limit
 
         # reset data and UI
         self.data.fill(np.nan)
@@ -1206,6 +1241,7 @@ class MainWindow(QtWidgets.QMainWindow):
         inter_loop_delay = (
             0.0 if voltage_mode else acquisition.inter_loop_delay_s
         )
+        self._scan_loop_count = loops
         if voltage_mode:
             if not use_local_bias and isinstance(self.bias_sm, DummyBias2400):
                 QtWidgets.QMessageBox.critical(
@@ -1254,6 +1290,7 @@ class MainWindow(QtWidgets.QMainWindow):
             constant_bias_voltage=constant_bias_voltage if not voltage_mode else None,
             use_local_readout=use_local_readout,
             use_local_bias=use_local_bias,
+            current_limit=acquisition.current_limit,
         )
         self._thread = QtCore.QThread()
         self._worker.moveToThread(self._thread)
@@ -1263,6 +1300,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._worker.loopStarted.connect(self._on_loop_started)
         self._worker.loopFinished.connect(self._on_loop_finished)
         self._worker.loopProgress.connect(self._on_loop_progress)
+        if hasattr(self._worker, "pixelExcluded"):
+            self._worker.pixelExcluded.connect(self._on_pixel_excluded)
         self._worker.deviceError.connect(self._handle_device_error)
         self._worker.finished.connect(self._scan_finished)
         self._thread.started.connect(self._worker.run)
@@ -1274,6 +1313,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._is_paused = False
         self._start_time = time.time()
         self._total_steps = loops * len(pixels)
+        self._total_steps = max(1, self._total_steps)
         self._done_steps = 0
         self.ui.ScanprogressBar.setValue(0)
         self.ui.ScanTimers.setText(
@@ -1439,6 +1479,33 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._update_plots()
 
+    def _on_pixel_excluded(self, pixel_idx: int, measured: float, loop_idx: int):
+        try:
+            pixel_idx = int(pixel_idx)
+        except Exception:
+            return
+        self._excluded_pixels.add(pixel_idx)
+        remaining_loops = max(0, int(self._scan_loop_count or 0) - int(loop_idx))
+        if remaining_loops > 0:
+            try:
+                self._total_steps = max(
+                    1, max(self._done_steps, self._total_steps - remaining_loops)
+                )
+            except Exception:
+                pass
+        val_text = (
+            f"{measured:.3e} A"
+            if measured is not None and not np.isnan(measured)
+            else "limit hit"
+        )
+        msg = (
+            f"Pixel {pixel_idx} exceeded current limit ({val_text}) – "
+            "excluded from remaining loops."
+        )
+        logging.warning(msg)
+        self.device_logger.warning(msg)
+        self._update_statusbar(msg)
+
     def _on_loop_progress(self, loop_idx: int, done: int, total: int):
         self._set_loop_progress_value(loop_idx, done, total)
 
@@ -1478,6 +1545,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_voltage = None
         self._voltage_sequence = []
         self._constant_bias_voltage = None
+        self._current_limit = None
+        self._excluded_pixels = set()
+        self._scan_loop_count = 0
         self._update_statusbar(text="Scan finished.")
         self._update_loop_scrub_state()
         self._reset_loop_progress_bar()
