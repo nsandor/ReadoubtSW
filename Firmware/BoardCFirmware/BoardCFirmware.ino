@@ -615,7 +615,44 @@ void loop() {
   if (up.startsWith("MEASURE_LOCAL")) {
     up.remove(0,13);
     up.trim();
-    n_samples = strtoi(up.c_str(),nullptr,10);
+    int n_samples = 1;
+    bool omitFlags[100];
+    memset(omitFlags, 0, sizeof(omitFlags));
+
+    int spacePos = up.indexOf(' ');
+    String samplesPart = up;
+    String remainder = "";
+    if (spacePos >= 0){
+      samplesPart = up.substring(0, spacePos);
+      remainder = up.substring(spacePos + 1);
+    }
+    samplesPart.trim();
+    if (samplesPart.length() > 0){
+      n_samples = samplesPart.toInt();
+      if (n_samples <= 0){
+        n_samples = 1;
+      }
+    }
+    remainder.trim();
+    if (remainder.startsWith("OMIT")){
+      remainder.remove(0,4);
+      remainder.trim();
+      while (remainder.length() > 0){
+        int comma = remainder.indexOf(',');
+        String tok = (comma >= 0) ? remainder.substring(0, comma) : remainder;
+        tok.trim();
+        if (comma >= 0){
+          remainder = remainder.substring(comma + 1);
+          remainder.trim();
+        } else {
+          remainder = "";
+        }
+        int idxVal = tok.toInt();
+        if (idxVal >= 1 && idxVal <= 100){
+          omitFlags[idxVal - 1] = true;
+        }
+      }
+    }
     if (!local){
       setGpio(PIN_AMPLIFIER_SEL, "ON", "AMP"); 
       setGpio(PIN_TIA_SELECT, "ON", "TIA");
@@ -623,8 +660,11 @@ void loop() {
       local = true;
     }
     unsigned long starttime = millis();
-    int16_t ADCVALS[100];
+    int16_t ADCVALS[100] = {0};
     for (uint8_t idx = 0; idx <= 99; idx++) {
+      if (omitFlags[idx]){
+        continue;
+      }
       uint8_t frame[FRAME_LEN];
       buildSwitchFrame(idx, frame);
       shiftFrameMSBFirst(frame, FRAME_LEN);
@@ -639,6 +679,10 @@ void loop() {
     unsigned long endtime = millis();
 
     for (uint8_t idx = 0; idx <= 99; idx++) {
+      if (omitFlags[idx]){
+        Serial.println(F("nan"));
+        continue;
+      }
       float zeroed = ADCVALS[idx] - 16499;
       float volts = zeroed * ADS112C04_LSB_VOLTS;
       float nanoAmps = calValue*-1 * volts / 20000000 * 1000000000;

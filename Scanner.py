@@ -208,6 +208,7 @@ class ScanWorker(QtCore.QObject):
                         avg_currents, sample_runtime_ms = self._sw.measure_local(
                             n_samples=self._n,
                             progress_cb=local_progress_cb,
+                            omit_indices=self._excluded_pixels,
                         )
                     except Exception as e:
                         logging.warning(f"Local measurement failed: {e}")

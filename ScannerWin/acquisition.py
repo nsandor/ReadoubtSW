@@ -13,10 +13,10 @@ class AcquisitionSettings:
     inter_loop_delay_s: float
     auto_range: bool
     current_range: float
-    current_limit: Optional[float] = None
     measurement_mode: str  # "time" or "voltage"
     voltage_steps: Optional[List[float]]
     voltage_settle_s: float
     constant_bias_voltage: Optional[float]
     use_local_readout: bool
     use_local_bias: bool
+    current_limit: Optional[float] = None

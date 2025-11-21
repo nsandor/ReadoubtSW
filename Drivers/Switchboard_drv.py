@@ -108,13 +108,28 @@ class SwitchBoard:
         self._last_voltage = value
         return value
 
-    def measure_local(self, n_samples=None, progress_cb=None) -> Tuple[List[float], float]:
+    def measure_local(self, n_samples=None, progress_cb=None, omit_indices=None) -> Tuple[List[float], float]:
         if n_samples is None:
             n_samples = 1
+        try:
+            n_samples = max(1, int(n_samples))
+        except Exception:
+            n_samples = 1
+        omit_list: List[int] = []
+        if omit_indices:
+            try:
+                omit_list = sorted(
+                    {int(x) for x in omit_indices if 1 <= int(x) <= 100}
+                )
+            except Exception:
+                omit_list = []
         with self._io_lock:
             logger.info("SwitchBoard MEASURE_LOCAL %s samples", n_samples)
             self.ser.flush()
-            self.ser.write(f"MEASURE_LOCAL {n_samples}\n".encode())
+            cmd = f"MEASURE_LOCAL {n_samples}"
+            if omit_list:
+                cmd += " OMIT " + ",".join(str(x) for x in omit_list)
+            self.ser.write(f"{cmd}\n".encode())
             floats: List[float] = []
             self.ser.timeout = None
             data_points = 100
@@ -167,7 +182,7 @@ class DummySwitchBoard:
         logger.info("Dummy SwitchBoard local voltage -> %.3f V", self._last_voltage)
         return self._last_voltage
 
-    def measure_local(self, n_samples=None, progress_cb=None) -> Tuple[List[float], float]:
+    def measure_local(self, n_samples=None, progress_cb=None, omit_indices=None) -> Tuple[List[float], float]:
         if n_samples is None:
             n_samples = 1
         import numpy as np
@@ -176,6 +191,12 @@ class DummySwitchBoard:
         currents = (rng.random(100) - 0.5) * 100  # nanoamps
         runtime_ms = float(rng.integers(100, 500))
         logger.info("Dummy SwitchBoard returning simulated local measurement")
+        omit_set = set()
+        if omit_indices:
+            try:
+                omit_set = {int(x) for x in omit_indices if 1 <= int(x) <= 100}
+            except Exception:
+                omit_set = set()
         if progress_cb:
             for idx in range(1, 101):
                 try:
@@ -183,7 +204,11 @@ class DummySwitchBoard:
                 except Exception:
                     break
         self._local_mode = True
-        return currents.tolist(), runtime_ms
+        currents_list = currents.tolist()
+        for i in omit_set:
+            if 1 <= i <= 100:
+                currents_list[i - 1] = float("nan")
+        return currents_list, runtime_ms
 
     def ensure_external_mode(self):
         self._local_mode = False
