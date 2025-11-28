@@ -33,6 +33,7 @@ class ScanWorker(QtCore.QObject):
         bias_sm=None,
         voltage_steps: Optional[Iterable[float]] = None,
         voltage_settle_s: float = 0.0,
+        voltage_zero_pause_s: float = 0.0,
         constant_bias_voltage: Optional[float] = None,
         use_local_readout: bool = False,
         use_local_bias: bool = False,
@@ -54,6 +55,7 @@ class ScanWorker(QtCore.QObject):
         self._bias_sm = bias_sm
         self._voltage_points = list(voltage_steps or [])
         self._voltage_settle_s = max(0.0, float(voltage_settle_s))
+        self._voltage_zero_pause_s = max(0.0, float(voltage_zero_pause_s))
         self._constant_bias_voltage = (
             float(constant_bias_voltage)
             if constant_bias_voltage is not None
@@ -66,6 +68,7 @@ class ScanWorker(QtCore.QObject):
         self._current_limit = float(current_limit) if current_limit is not None else None
         self._excluded_pixels: set[int] = set()
         self._per_loop_total = max(1, len(self._pixels) or 1)
+        self._pulsed_jv = bool(self._voltage_points) and self._voltage_zero_pause_s > 0.0
 
     def _emit_loop_progress(self, loop_idx: int, done: int, total: Optional[int] = None):
         total_count = max(1, int(total if total is not None else self._per_loop_total))
@@ -144,6 +147,7 @@ class ScanWorker(QtCore.QObject):
             loop_plan = [(idx, None) for idx in range(1, self._loops + 1)]
 
         try:
+            last_loop_idx = loop_plan[-1][0] if loop_plan else 0
             for loop_idx, voltage in loop_plan:
                 if self._stop:
                     break
@@ -155,6 +159,18 @@ class ScanWorker(QtCore.QObject):
                 requested_voltage = voltage
                 applied_voltage = None
                 if bias_mode and voltage is not None:
+                    if self._pulsed_jv:
+                        try:
+                            self._apply_bias_voltage(0.0)
+                        except Exception as e:
+                            self.deviceError.emit(f"Failed to return to 0 V: {e}")
+                            raise
+                        if self._voltage_zero_pause_s > 0:
+                            self._sleep_with_stop(
+                                self._voltage_zero_pause_s, allow_pause=True
+                            )
+                            if self._stop:
+                                break
                     try:
                         applied_voltage = self._apply_bias_voltage(voltage)
                     except Exception as e:
@@ -286,6 +302,19 @@ class ScanWorker(QtCore.QObject):
                         metadata = {}
                     metadata["runtime_ms"] = float(runtime_ms)
                 self.loopFinished.emit(loop_idx, metadata)
+                has_next_loop = loop_idx < last_loop_idx
+                if self._pulsed_jv and has_next_loop and not self._stop:
+                    try:
+                        self._apply_bias_voltage(0.0)
+                    except Exception as e:
+                        self.deviceError.emit(f"Failed to return to 0 V: {e}")
+                        raise
+                    if self._voltage_zero_pause_s > 0:
+                        self._sleep_with_stop(
+                            self._voltage_zero_pause_s, allow_pause=True
+                        )
+                        if self._stop:
+                            break
                 if (
                     loop_idx < (loop_plan[-1][0] if loop_plan else 0)
                     and self._inter_loop_delay_s > 0

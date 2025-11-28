@@ -19,4 +19,6 @@ class AcquisitionSettings:
     constant_bias_voltage: Optional[float]
     use_local_readout: bool
     use_local_bias: bool
+    voltage_zero_center: bool = False
+    voltage_zero_pause_s: float = 0.0
     current_limit: Optional[float] = None

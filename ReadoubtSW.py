@@ -129,6 +129,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._voltage_sequence: List[float] = []
         self._constant_bias_voltage: Optional[float] = None
         self._requested_voltage: Optional[float] = None
+        self._voltage_zero_center: bool = False
+        self._voltage_zero_pause: float = 0.0
+        self._voltage_settle_s: float = 0.0
         self._voltage_control_widgets: List[QtWidgets.QWidget] = []
         self._loop_control_widgets: List[QtWidgets.QWidget] = []
         self._time_bias_widgets: List[QtWidgets.QWidget] = []
@@ -264,6 +267,39 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ui.spin_bias_thickness,
         )
 
+        settle_index = self.ui.formLayout_2.indexOf(self.ui.label_voltage_settle)
+        settle_row = (
+            self.ui.formLayout_2.getItemPosition(settle_index)[0]
+            if settle_index >= 0
+            else self.ui.formLayout_2.rowCount()
+        )
+        self.ui.check_voltage_zero_center = QtWidgets.QCheckBox(
+            "Zero-centered sweep (start at 0 V)"
+        )
+        self.ui.check_voltage_zero_center.setObjectName("check_voltage_zero_center")
+        self.ui.formLayout_2.insertRow(settle_row + 1, self.ui.check_voltage_zero_center)
+
+        self.ui.check_voltage_pulse = QtWidgets.QCheckBox(
+            "Pulsed JV (return to 0 V between steps)"
+        )
+        self.ui.check_voltage_pulse.setObjectName("check_voltage_pulse")
+        self.ui.formLayout_2.insertRow(settle_row + 2, self.ui.check_voltage_pulse)
+
+        self.ui.label_voltage_zero_pause = QtWidgets.QLabel("0 V dwell between steps (s):")
+        self.ui.label_voltage_zero_pause.setObjectName("label_voltage_zero_pause")
+        self.ui.spin_voltage_zero_pause = QtWidgets.QDoubleSpinBox()
+        self.ui.spin_voltage_zero_pause.setObjectName("spin_voltage_zero_pause")
+        self.ui.spin_voltage_zero_pause.setDecimals(3)
+        self.ui.spin_voltage_zero_pause.setMinimum(0.0)
+        self.ui.spin_voltage_zero_pause.setMaximum(600.0)
+        self.ui.spin_voltage_zero_pause.setSingleStep(0.1)
+        self.ui.spin_voltage_zero_pause.setValue(0.0)
+        self.ui.formLayout_2.insertRow(
+            settle_row + 3,
+            self.ui.label_voltage_zero_pause,
+            self.ui.spin_voltage_zero_pause,
+        )
+
         self._time_bias_widgets = [
             self.ui.check_bias_enable,
             self.ui.label_bias_voltage,
@@ -280,6 +316,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ui.spin_voltage_step,
             self.ui.label_voltage_settle,
             self.ui.spin_voltage_settle,
+            self.ui.check_voltage_zero_center,
+            self.ui.check_voltage_pulse,
+            self.ui.label_voltage_zero_pause,
+            self.ui.spin_voltage_zero_pause,
         ]
         self._init_switch_options_panel()
         self._init_loop_scrubber()
@@ -330,6 +370,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.combo_bias_units.currentIndexChanged.connect(
             self._update_bias_controls_state
         )
+        self.ui.check_voltage_pulse.toggled.connect(self._update_pulsed_controls_state)
 
         # Menu actions
         self.ui.actionConnect_SMU.triggered.connect(self._connect_read_smu)
@@ -801,6 +842,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.spin_bias_thickness.setVisible(show_thickness)
         self.ui.label_bias_thickness.setEnabled(thickness_enabled)
         self.ui.spin_bias_thickness.setEnabled(thickness_enabled)
+        self._update_pulsed_controls_state()
+
+    def _update_pulsed_controls_state(self):
+        show_voltage = self.measurement_mode == "voltage"
+        checkbox_enabled = show_voltage
+        self.ui.check_voltage_zero_center.setEnabled(show_voltage)
+        self.ui.check_voltage_pulse.setEnabled(show_voltage)
+        pulsed_enabled = (
+            show_voltage
+            and self.ui.check_voltage_pulse.isChecked()
+        )
+        self.ui.label_voltage_zero_pause.setEnabled(pulsed_enabled)
+        self.ui.spin_voltage_zero_pause.setEnabled(pulsed_enabled)
 
     def _on_measurement_type_changed(self, index: int):
         text = (
@@ -814,6 +868,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for w in self._voltage_control_widgets:
             w.setVisible(show_voltage)
         self._update_bias_controls_state()
+        self._update_pulsed_controls_state()
         if show_voltage:
             self._current_voltage = None
             if self.ui.spin_loops.value() != 1:
@@ -854,6 +909,25 @@ class MainWindow(QtWidgets.QMainWindow):
         if len(values) > 2000:
             raise ValueError("Voltage sweep would produce more than 2000 steps.")
         return values
+
+    @staticmethod
+    def _apply_zero_centering(voltages: List[float], enabled: bool) -> List[float]:
+        if not enabled:
+            return voltages
+        if not voltages:
+            return [0.0]
+        eps = 1e-9
+        result: List[float] = [0.0]
+        if abs(voltages[0]) > eps:
+            result.extend(voltages)
+        else:
+            deduped = [0.0]
+            for v in voltages[1:]:
+                if abs(v) < eps and abs(deduped[-1]) < eps:
+                    continue
+                deduped.append(v)
+            result = deduped
+        return result
 
     def _collect_voltage_sweep_settings(self) -> tuple[List[float], float]:
         start = float(self.ui.spin_voltage_start.value())
@@ -970,6 +1044,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ui.Measurement_type_combobox.currentText() or ""
         ).lower()
         voltage_mode = "voltage" in measurement_text
+        zero_center = bool(
+            getattr(self.ui, "check_voltage_zero_center", None)
+        ) and bool(self.ui.check_voltage_zero_center.isChecked())
+        pulsed_jv = bool(
+            getattr(self.ui, "check_voltage_pulse", None)
+        ) and bool(self.ui.check_voltage_pulse.isChecked())
+        zero_pause = 0.0
+        if pulsed_jv and getattr(self.ui, "spin_voltage_zero_pause", None):
+            try:
+                zero_pause = max(0.0, float(self.ui.spin_voltage_zero_pause.value()))
+            except Exception:
+                zero_pause = 0.0
 
         voltage_steps: Optional[List[float]] = None
         settle_time = 0.0
@@ -979,9 +1065,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 voltage_steps, settle_time = self._collect_voltage_sweep_settings()
             except Exception as exc:
                 raise ValueError(f"Voltage sweep invalid: {exc}") from exc
+            voltage_steps = self._apply_zero_centering(
+                list(voltage_steps or []), zero_center
+            )
+            self._ensure_local_bias_supported(voltage_steps)
             loops = len(voltage_steps)
             inter_loop_delay = 0.0
         else:
+            zero_center = False
+            zero_pause = 0.0
             try:
                 constant_bias_voltage = self._collect_time_bias_voltage()
             except Exception as exc:
@@ -1017,6 +1109,8 @@ class MainWindow(QtWidgets.QMainWindow):
             measurement_mode="voltage" if voltage_mode else "time",
             voltage_steps=list(voltage_steps or []) if voltage_mode else None,
             voltage_settle_s=settle_time if voltage_mode else 0.0,
+            voltage_zero_center=bool(zero_center) if voltage_mode else False,
+            voltage_zero_pause_s=zero_pause if voltage_mode and pulsed_jv else 0.0,
             constant_bias_voltage=(
                 float(constant_bias_voltage)
                 if constant_bias_voltage is not None and not voltage_mode
@@ -1108,6 +1202,13 @@ class MainWindow(QtWidgets.QMainWindow):
             metadata["constant_bias_voltage"] = float(self._constant_bias_voltage)
         if self._voltage_sequence:
             metadata["voltage_sequence_count"] = len(self._voltage_sequence)
+        if self.measurement_mode == "voltage":
+            if self._voltage_zero_center:
+                metadata["voltage_zero_center"] = True
+            if self._voltage_zero_pause > 0:
+                metadata["voltage_zero_pause_s"] = float(self._voltage_zero_pause)
+            if self._voltage_settle_s > 0:
+                metadata["voltage_settle_s"] = float(self._voltage_settle_s)
         if self._current_limit is not None:
             metadata["current_limit_a"] = float(self._current_limit)
         if self._excluded_pixels:
@@ -1219,6 +1320,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_voltage = None
         self._constant_bias_voltage = None
         self._requested_voltage = None
+        self._voltage_zero_center = bool(
+            acquisition.voltage_zero_center if voltage_mode else False
+        )
+        self._voltage_zero_pause = (
+            float(acquisition.voltage_zero_pause_s) if voltage_mode else 0.0
+        )
+        self._voltage_settle_s = acquisition.voltage_settle_s if voltage_mode else 0.0
         use_local_readout = acquisition.use_local_readout
         use_local_bias = acquisition.use_local_bias
         if use_local_readout and not self._switch_connected():
@@ -1287,6 +1395,7 @@ class MainWindow(QtWidgets.QMainWindow):
             bias_sm=bias_device,
             voltage_steps=voltage_steps if voltage_mode else None,
             voltage_settle_s=settle_time if voltage_mode else 0.0,
+            voltage_zero_pause_s=self._voltage_zero_pause if voltage_mode else 0.0,
             constant_bias_voltage=constant_bias_voltage if not voltage_mode else None,
             use_local_readout=use_local_readout,
             use_local_bias=use_local_bias,
@@ -1545,6 +1654,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_voltage = None
         self._voltage_sequence = []
         self._constant_bias_voltage = None
+        self._voltage_zero_center = False
+        self._voltage_zero_pause = 0.0
+        self._voltage_settle_s = 0.0
         self._current_limit = None
         self._excluded_pixels = set()
         self._scan_loop_count = 0
