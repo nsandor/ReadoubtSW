@@ -67,8 +67,11 @@ class CharacterizationSettings:
     heatmap_cmap_resistance: str = "viridis"
     heatmap_cmap_dark: str = "inferno"
     plot_units_current: str = "nA"
+    plot_units_resistance: str = "Ohm"
     plot_vmin_current: Optional[float] = None
     plot_vmax_current: Optional[float] = None
+    plot_vmin_resistance: Optional[float] = None
+    plot_vmax_resistance: Optional[float] = None
 
 
 @dataclass
@@ -126,34 +129,35 @@ def _generate_voltage_steps(start: float, end: float, step: float) -> List[float
     return values
 
 
-    def _apply_zero_centering(voltages: List[float], enabled: bool) -> List[float]:
-        if not enabled:
-            return voltages
-        if not voltages:
-            return [0.0]
-        eps = 1e-9
-        result: List[float] = [0.0]
-        if abs(voltages[0]) > eps:
-            result.extend(voltages)
-        else:
-            deduped = [0.0]
-            for v in voltages[1:]:
-                if abs(v) < eps and abs(deduped[-1]) < eps:
-                    continue
-                deduped.append(v)
-            result = deduped
-        return result
+def _apply_zero_centering(voltages: List[float], enabled: bool) -> List[float]:
+    if not enabled:
+        return voltages
+    if not voltages:
+        return [0.0]
+    eps = 1e-9
+    result: List[float] = [0.0]
+    if abs(voltages[0]) > eps:
+        result.extend(voltages)
+    else:
+        deduped = [0.0]
+        for v in voltages[1:]:
+            if abs(v) < eps and abs(deduped[-1]) < eps:
+                continue
+            deduped.append(v)
+        result = deduped
+    return result
 
-    def _apply_route_settle_time(self):
-        try:
-            ms = max(0, int(self._settings.route_settle_ms))
-        except Exception:
-            return
-        try:
-            if hasattr(self._switch, "set_settle_time"):
-                self._switch.set_settle_time(ms)
-        except Exception as exc:
-            LOG.warning("Failed to apply routing settle time: %s", exc)
+
+def _apply_route_settle_time(switch, ms: int):
+    try:
+        ms_val = max(0, int(ms))
+    except Exception:
+        return
+    try:
+        if hasattr(switch, "set_settle_time"):
+            switch.set_settle_time(ms_val)
+    except Exception as exc:
+        LOG.warning("Failed to apply routing settle time: %s", exc)
 
 
 def _loop_to_csv_name(base: str, loop_idx: int, voltage: Optional[float]) -> str:
@@ -206,7 +210,7 @@ class CharacterizationWorker(QtCore.QObject):
             self.stepsPlanned.emit(self._step_plan)
             total = self._estimate_total_loops()
             self._total_steps = total
-            self._apply_route_settle_time()
+            _apply_route_settle_time(self._switch, self._settings.route_settle_ms)
             self._emit_progress("Starting characterization suite", reset=True)
             self._run_suite()
             self._write_metadata()
@@ -663,11 +667,16 @@ class CharacterizationWorker(QtCore.QObject):
         active = set(self._summary.active_pixels)
         shorted = set(self._summary.shorted_pixels)
         active_minus_shorted = [p for p in active if p not in shorted]
-        unit = (self._settings.plot_units_current or "A").strip()
+        current_unit = (self._settings.plot_units_current or "A").strip()
         unit_scale = {"A": 1.0, "mA": 1e3, "µA": 1e6, "uA": 1e6, "nA": 1e9, "pA": 1e12}
-        scale = unit_scale.get(unit, 1.0)
+        curr_scale = unit_scale.get(current_unit, 1.0)
         vmin_curr = self._settings.plot_vmin_current
         vmax_curr = self._settings.plot_vmax_current
+        res_unit = (self._settings.plot_units_resistance or "Ohm").strip()
+        res_scale_map = {"Ohm": 1.0, "kOhm": 1e-3, "MOhm": 1e-6, "GOhm": 1e-9}
+        res_scale = res_scale_map.get(res_unit, 1.0)
+        vmin_res = self._settings.plot_vmin_resistance
+        vmax_res = self._settings.plot_vmax_resistance
 
         # Resistance heatmap + histogram
         resistance_map = np.full((10, 10), np.nan)
@@ -686,21 +695,27 @@ class CharacterizationWorker(QtCore.QObject):
                 except Exception:
                     continue
             self._summary.resistance_map = resistance_map
+            scaled_res = resistance_map * res_scale
             fig, ax = plt.subplots()
-            im = ax.imshow(resistance_map, cmap=self._settings.heatmap_cmap_resistance)
-            plt.colorbar(im, ax=ax, label="Resistance (Ohms)")
+            im = ax.imshow(
+                scaled_res,
+                cmap=self._settings.heatmap_cmap_resistance,
+                vmin=vmin_res if vmin_res is not None else None,
+                vmax=vmax_res if vmax_res is not None else None,
+            )
+            plt.colorbar(im, ax=ax, label=f"Resistance ({res_unit})")
             ax.set_title("Resistance map (active pixels)")
             res_heatmap_path = plots_dir / "resistance_heatmap.png"
             fig.savefig(res_heatmap_path, dpi=200, bbox_inches="tight")
             plt.close(fig)
             self._summary.plot_paths["resistance_heatmap"] = res_heatmap_path
 
-            valid_res = resistance_map[~np.isnan(resistance_map)]
+            valid_res = scaled_res[~np.isnan(scaled_res)]
             valid_res = self._sigma_clip(valid_res, self._settings.histogram_sigma_clip)
             if valid_res.size:
                 fig, ax = plt.subplots()
                 ax.hist(valid_res, bins=max(1, int(self._settings.histogram_bins)))
-                ax.set_xlabel("Resistance (Ohms)")
+                ax.set_xlabel(f"Resistance ({res_unit})")
                 ax.set_ylabel("Pixel count")
                 ax.set_title("Resistance histogram (active pixels)")
                 res_hist_path = plots_dir / "resistance_histogram.png"
@@ -709,7 +724,7 @@ class CharacterizationWorker(QtCore.QObject):
                 self._summary.plot_paths["resistance_histogram"] = res_hist_path
 
         # Dark current at operating bias
-            dark_capture = self._captures.get("dark_current_operating")
+        dark_capture = self._captures.get("dark_current_operating")
         if dark_capture and dark_capture.loops:
             dark_map = np.array(dark_capture.loops[0].data, copy=True)
             if active_minus_shorted:
@@ -719,7 +734,7 @@ class CharacterizationWorker(QtCore.QObject):
                     mask[r, c] = False
                 dark_map = np.where(mask, np.nan, dark_map)
             self._summary.dark_current_map = dark_map
-            scaled_map = dark_map * scale
+            scaled_map = dark_map * curr_scale
             fig, ax = plt.subplots()
             im = ax.imshow(
                 scaled_map,
@@ -727,7 +742,7 @@ class CharacterizationWorker(QtCore.QObject):
                 vmin=vmin_curr if vmin_curr is not None else None,
                 vmax=vmax_curr if vmax_curr is not None else None,
             )
-            plt.colorbar(im, ax=ax, label=f"Current ({unit})")
+            plt.colorbar(im, ax=ax, label=f"Current ({current_unit})")
             ax.set_title("Dark current @ operating bias")
             dark_heatmap_path = plots_dir / "dark_current_heatmap.png"
             fig.savefig(dark_heatmap_path, dpi=200, bbox_inches="tight")
@@ -739,7 +754,7 @@ class CharacterizationWorker(QtCore.QObject):
             if valid_dark.size:
                 fig, ax = plt.subplots()
                 ax.hist(valid_dark, bins=max(1, int(self._settings.histogram_bins)))
-                ax.set_xlabel(f"Current ({unit})")
+                ax.set_xlabel(f"Current ({current_unit})")
                 ax.set_ylabel("Pixel count")
                 ax.set_title("Dark current @ operating bias")
                 dark_hist_path = plots_dir / "dark_current_histogram.png"

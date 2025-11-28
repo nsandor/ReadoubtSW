@@ -401,8 +401,25 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
         self.vmax_edit = QtWidgets.QLineEdit(
             "" if settings.plot_vmax_current is None else str(settings.plot_vmax_current)
         )
-        analysis_form.addRow("Heatmap min (unit units):", self.vmin_edit)
-        analysis_form.addRow("Heatmap max (unit units):", self.vmax_edit)
+        analysis_form.addRow("Dark heatmap min (unit):", self.vmin_edit)
+        analysis_form.addRow("Dark heatmap max (unit):", self.vmax_edit)
+        self.res_units_combo = QtWidgets.QComboBox()
+        self.res_units_combo.addItems(["Ohm", "kOhm", "MOhm", "GOhm"])
+        try:
+            idx = self.res_units_combo.findText(settings.plot_units_resistance)
+            if idx >= 0:
+                self.res_units_combo.setCurrentIndex(idx)
+        except Exception:
+            pass
+        analysis_form.addRow("Resistance units:", self.res_units_combo)
+        self.res_vmin_edit = QtWidgets.QLineEdit(
+            "" if settings.plot_vmin_resistance is None else str(settings.plot_vmin_resistance)
+        )
+        self.res_vmax_edit = QtWidgets.QLineEdit(
+            "" if settings.plot_vmax_resistance is None else str(settings.plot_vmax_resistance)
+        )
+        analysis_form.addRow("Resistance heatmap min:", self.res_vmin_edit)
+        analysis_form.addRow("Resistance heatmap max:", self.res_vmax_edit)
 
         # Tabs assembly to reduce required window height
         tab_general = QtWidgets.QWidget()
@@ -555,6 +572,11 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
             self.units_combo.setCurrentIndex(idx_units)
         self.vmin_edit.setText("" if s.plot_vmin_current is None else str(s.plot_vmin_current))
         self.vmax_edit.setText("" if s.plot_vmax_current is None else str(s.plot_vmax_current))
+        idx_res_units = self.res_units_combo.findText(s.plot_units_resistance)
+        if idx_res_units >= 0:
+            self.res_units_combo.setCurrentIndex(idx_res_units)
+        self.res_vmin_edit.setText("" if s.plot_vmin_resistance is None else str(s.plot_vmin_resistance))
+        self.res_vmax_edit.setText("" if s.plot_vmax_resistance is None else str(s.plot_vmax_resistance))
     @staticmethod
     def _spin_value_or_none(spin: QtWidgets.QDoubleSpinBox, scale: float = 1.0) -> Optional[float]:
         try:
@@ -614,6 +636,7 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
         s.heatmap_cmap_resistance = self.res_cmap_combo.currentText()
         s.heatmap_cmap_dark = self.dark_cmap_combo.currentText()
         s.plot_units_current = self.units_combo.currentText()
+        s.plot_units_resistance = self.res_units_combo.currentText()
         try:
             s.plot_vmin_current = float(self.vmin_edit.text()) if self.vmin_edit.text().strip() else None
         except Exception:
@@ -622,6 +645,14 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
             s.plot_vmax_current = float(self.vmax_edit.text()) if self.vmax_edit.text().strip() else None
         except Exception:
             s.plot_vmax_current = None
+        try:
+            s.plot_vmin_resistance = float(self.res_vmin_edit.text()) if self.res_vmin_edit.text().strip() else None
+        except Exception:
+            s.plot_vmin_resistance = None
+        try:
+            s.plot_vmax_resistance = float(self.res_vmax_edit.text()) if self.res_vmax_edit.text().strip() else None
+        except Exception:
+            s.plot_vmax_resistance = None
         return s
 
 
