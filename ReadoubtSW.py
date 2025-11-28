@@ -44,6 +44,7 @@ from ScannerWin.acquisition import AcquisitionSettings
 from Analysis.analysis_window import AnalysisWindow
 from StageScan.stage_controller_window import StageControllerWindow
 from StageScan.stage_scan_window import StageScanWindow
+from characterization import CharacterizationSettings, CharacterizationWorker
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -79,6 +80,376 @@ class LoopSnapshot:
     timestamp: float = field(default_factory=lambda: time.time())
 
 
+class CharacterizationSettingsDialog(QtWidgets.QDialog):
+    """Dialog to expose characterization suite options."""
+
+    def __init__(
+        self,
+        parent: QtWidgets.QWidget,
+        settings: CharacterizationSettings,
+        pixel_spec: str,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("Characterization Settings")
+        self.setModal(True)
+        self.resize(700, 720)
+        layout = QtWidgets.QVBoxLayout(self)
+
+        def _maybe_scientific(spin: QtWidgets.QDoubleSpinBox):
+            try:
+                # Older PySide builds may not expose setNotation; ignore if unavailable.
+                spin.setNotation(QtWidgets.QDoubleSpinBox.Notation.ScientificNotation)
+            except Exception:
+                try:
+                    spin.setProperty("notation", QtWidgets.QDoubleSpinBox.Notation.ScientificNotation)
+                except Exception:
+                    pass
+
+        def _config_nano_spin(
+            spin: QtWidgets.QDoubleSpinBox,
+            value_a: Optional[float],
+            *,
+            allow_zero: bool = False,
+            single_step: float = 1.0,
+        ):
+            spin.setDecimals(6)
+            spin.setSuffix(" nA")
+            spin.setRange(0.0 if allow_zero else 1e-3, 1e9)
+            spin.setSingleStep(single_step)
+            _maybe_scientific(spin)
+            try:
+                spin.setValue(float(value_a) * 1e9 if value_a is not None else 0.0)
+            except Exception:
+                spin.setValue(0.0)
+
+        tabs = QtWidgets.QTabWidget(self)
+        layout.addWidget(tabs)
+
+        # General
+        general_box = QtWidgets.QGroupBox("General")
+        general_form = QtWidgets.QFormLayout(general_box)
+        self.pixel_spec_edit = QtWidgets.QLineEdit(pixel_spec)
+        general_form.addRow("Pixels:", self.pixel_spec_edit)
+
+        self.samples_spin = QtWidgets.QSpinBox()
+        self.samples_spin.setRange(1, 100)
+        self.samples_spin.setValue(int(settings.samples_per_pixel))
+        general_form.addRow("Samples per pixel:", self.samples_spin)
+
+        self.nplc_spin = QtWidgets.QDoubleSpinBox()
+        self.nplc_spin.setDecimals(3)
+        self.nplc_spin.setRange(0.01, 25.0)
+        self.nplc_spin.setValue(float(settings.nplc))
+        general_form.addRow("NPLC:", self.nplc_spin)
+
+        self.auto_range_check = QtWidgets.QCheckBox("Auto current range")
+        self.auto_range_check.setChecked(settings.auto_range)
+        general_form.addRow(self.auto_range_check)
+
+        self.current_range_spin = QtWidgets.QDoubleSpinBox()
+        _config_nano_spin(self.current_range_spin, settings.current_range)
+        self.current_range_spin.setEnabled(not settings.auto_range)
+        general_form.addRow("Manual range (nA):", self.current_range_spin)
+        self.auto_range_check.toggled.connect(
+            lambda checked: self.current_range_spin.setEnabled(not checked)
+        )
+
+        self.local_readout_check = QtWidgets.QCheckBox("Use switch board local readout")
+        self.local_readout_check.setChecked(settings.use_local_readout)
+        general_form.addRow(self.local_readout_check)
+
+        self.local_bias_check = QtWidgets.QCheckBox("Use switch board local bias")
+        self.local_bias_check.setChecked(settings.use_local_bias)
+        general_form.addRow(self.local_bias_check)
+
+        self.output_subdir_edit = QtWidgets.QLineEdit(settings.output_subdir)
+        general_form.addRow("Output subfolder:", self.output_subdir_edit)
+
+        # Shorted pixel test
+        short_box = QtWidgets.QGroupBox("Shorted pixel test")
+        short_form = QtWidgets.QFormLayout(short_box)
+        self.short_threshold_spin = QtWidgets.QDoubleSpinBox()
+        _config_nano_spin(self.short_threshold_spin, settings.short_threshold_a, single_step=10.0)
+        short_form.addRow("Short threshold (nA):", self.short_threshold_spin)
+
+        pin_row = QtWidgets.QHBoxLayout()
+        self.pin_map_edit = QtWidgets.QLineEdit(settings.pin_map_path or "")
+        browse_pin = QtWidgets.QPushButton("Browse…")
+        browse_pin.clicked.connect(self._browse_pin_map)
+        pin_row.addWidget(self.pin_map_edit, 1)
+        pin_row.addWidget(browse_pin)
+        pin_widget = QtWidgets.QWidget()
+        pin_widget.setLayout(pin_row)
+        short_form.addRow("Pixel→pin map (optional):", pin_widget)
+
+        # Dead short test
+        dead_box = QtWidgets.QGroupBox("Dead short test")
+        dead_form = QtWidgets.QFormLayout(dead_box)
+        self.dead_voltage_spin = QtWidgets.QDoubleSpinBox()
+        self.dead_voltage_spin.setDecimals(3)
+        self.dead_voltage_spin.setRange(0.0, 10.0)
+        self.dead_voltage_spin.setSingleStep(0.01)
+        self.dead_voltage_spin.setValue(float(settings.dead_short_voltage_v))
+        dead_form.addRow("Bias voltage (V):", self.dead_voltage_spin)
+
+        self.dead_threshold_spin = QtWidgets.QDoubleSpinBox()
+        _config_nano_spin(self.dead_threshold_spin, settings.dead_short_threshold_a, single_step=10.0)
+        dead_form.addRow("Dead short threshold (nA):", self.dead_threshold_spin)
+
+        self.stop_dead_check = QtWidgets.QCheckBox("Stop suite if dead shorts found")
+        self.stop_dead_check.setChecked(settings.stop_on_dead_short)
+        dead_form.addRow(self.stop_dead_check)
+
+        # Resistance JV
+        res_box = QtWidgets.QGroupBox("Resistance JV sweep")
+        res_form = QtWidgets.QFormLayout(res_box)
+        self.res_start_spin = QtWidgets.QDoubleSpinBox()
+        self.res_start_spin.setDecimals(3)
+        self.res_start_spin.setRange(-200.0, 200.0)
+        self.res_start_spin.setSingleStep(0.05)
+        self.res_start_spin.setValue(float(settings.resistance_start_v))
+        res_form.addRow("Start voltage (V):", self.res_start_spin)
+
+        self.res_end_spin = QtWidgets.QDoubleSpinBox()
+        self.res_end_spin.setDecimals(3)
+        self.res_end_spin.setRange(-200.0, 200.0)
+        self.res_end_spin.setSingleStep(0.05)
+        self.res_end_spin.setValue(float(settings.resistance_end_v))
+        res_form.addRow("End voltage (V):", self.res_end_spin)
+
+        self.res_step_spin = QtWidgets.QDoubleSpinBox()
+        self.res_step_spin.setDecimals(3)
+        self.res_step_spin.setRange(0.001, 200.0)
+        self.res_step_spin.setSingleStep(0.01)
+        self.res_step_spin.setValue(float(settings.resistance_step_v))
+        res_form.addRow("Step (V):", self.res_step_spin)
+
+        self.res_settle_spin = QtWidgets.QDoubleSpinBox()
+        self.res_settle_spin.setDecimals(3)
+        self.res_settle_spin.setRange(0.0, 600.0)
+        self.res_settle_spin.setSingleStep(0.1)
+        self.res_settle_spin.setValue(float(settings.resistance_settle_s))
+        res_form.addRow("Settle time (s):", self.res_settle_spin)
+
+        # Dark current @ operating bias
+        op_box = QtWidgets.QGroupBox("Dark current @ operating bias")
+        op_form = QtWidgets.QFormLayout(op_box)
+        self.operating_field_spin = QtWidgets.QDoubleSpinBox()
+        self.operating_field_spin.setDecimals(2)
+        self.operating_field_spin.setRange(0.0, 1_000.0)
+        self.operating_field_spin.setSingleStep(5.0)
+        self.operating_field_spin.setValue(float(settings.operating_field_v_per_cm))
+        op_form.addRow("Field (V/cm):", self.operating_field_spin)
+
+        self.operating_thickness_spin = QtWidgets.QDoubleSpinBox()
+        self.operating_thickness_spin.setDecimals(3)
+        self.operating_thickness_spin.setRange(0.001, 1000.0)
+        self.operating_thickness_spin.setSingleStep(0.01)
+        self.operating_thickness_spin.setValue(float(settings.device_thickness_cm))
+        op_form.addRow("Thickness (cm):", self.operating_thickness_spin)
+
+        self.operating_settle_spin = QtWidgets.QDoubleSpinBox()
+        self.operating_settle_spin.setDecimals(1)
+        self.operating_settle_spin.setRange(0.0, 3600.0)
+        self.operating_settle_spin.setSingleStep(1.0)
+        self.operating_settle_spin.setValue(float(settings.operating_settle_s))
+        op_form.addRow("Settle time (s):", self.operating_settle_spin)
+
+        self.operating_limit_spin = QtWidgets.QDoubleSpinBox()
+        _config_nano_spin(self.operating_limit_spin, settings.operating_current_limit_a, allow_zero=True, single_step=100.0)
+        self.operating_limit_spin.setSpecialValueText("Disabled")
+        op_form.addRow("Current limit (nA):", self.operating_limit_spin)
+
+        # Wide dark JV
+        wide_box = QtWidgets.QGroupBox("Wide dark JV")
+        wide_form = QtWidgets.QFormLayout(wide_box)
+        self.wide_start_spin = QtWidgets.QDoubleSpinBox()
+        self.wide_start_spin.setDecimals(3)
+        self.wide_start_spin.setRange(-300.0, 300.0)
+        self.wide_start_spin.setSingleStep(1.0)
+        self.wide_start_spin.setValue(float(settings.jv_dark_start_v))
+        wide_form.addRow("Start voltage (V):", self.wide_start_spin)
+
+        self.wide_end_spin = QtWidgets.QDoubleSpinBox()
+        self.wide_end_spin.setDecimals(3)
+        self.wide_end_spin.setRange(-300.0, 300.0)
+        self.wide_end_spin.setSingleStep(1.0)
+        self.wide_end_spin.setValue(float(settings.jv_dark_end_v))
+        wide_form.addRow("End voltage (V):", self.wide_end_spin)
+
+        self.wide_step_spin = QtWidgets.QDoubleSpinBox()
+        self.wide_step_spin.setDecimals(3)
+        self.wide_step_spin.setRange(0.001, 300.0)
+        self.wide_step_spin.setSingleStep(0.5)
+        self.wide_step_spin.setValue(float(settings.jv_dark_step_v))
+        wide_form.addRow("Step (V):", self.wide_step_spin)
+
+        self.wide_zero_pause_spin = QtWidgets.QDoubleSpinBox()
+        self.wide_zero_pause_spin.setDecimals(2)
+        self.wide_zero_pause_spin.setRange(0.0, 600.0)
+        self.wide_zero_pause_spin.setSingleStep(0.1)
+        self.wide_zero_pause_spin.setValue(float(settings.jv_dark_zero_pause_s))
+        wide_form.addRow("0 V dwell (s):", self.wide_zero_pause_spin)
+
+        self.wide_settle_spin = QtWidgets.QDoubleSpinBox()
+        self.wide_settle_spin.setDecimals(2)
+        self.wide_settle_spin.setRange(0.0, 600.0)
+        self.wide_settle_spin.setSingleStep(0.1)
+        self.wide_settle_spin.setValue(float(settings.jv_dark_settle_s))
+        wide_form.addRow("Settle time (s):", self.wide_settle_spin)
+
+        self.wide_current_limit_spin = QtWidgets.QDoubleSpinBox()
+        _config_nano_spin(self.wide_current_limit_spin, settings.jv_dark_current_limit_a, allow_zero=True, single_step=100.0)
+        self.wide_current_limit_spin.setSpecialValueText("Disabled")
+        wide_form.addRow("Current limit (nA):", self.wide_current_limit_spin)
+
+        self.wide_zero_center_check = QtWidgets.QCheckBox("Zero-centered sweep")
+        self.wide_zero_center_check.setChecked(settings.jv_dark_zero_center)
+        wide_form.addRow(self.wide_zero_center_check)
+
+        # Light JT
+        jt_box = QtWidgets.QGroupBox("Light JT")
+        jt_form = QtWidgets.QFormLayout(jt_box)
+        self.jt_bias_spin = QtWidgets.QDoubleSpinBox()
+        self.jt_bias_spin.setDecimals(3)
+        self.jt_bias_spin.setRange(0.0, 300.0)
+        self.jt_bias_spin.setSingleStep(1.0)
+        self.jt_bias_spin.setValue(float(settings.jt_light_bias_v))
+        jt_form.addRow("Bias (V):", self.jt_bias_spin)
+
+        self.jt_samples_spin = QtWidgets.QSpinBox()
+        self.jt_samples_spin.setRange(1, 100)
+        self.jt_samples_spin.setValue(int(settings.jt_light_samples_per_pixel))
+        jt_form.addRow("Samples per pixel:", self.jt_samples_spin)
+
+        self.jt_threshold_spin = QtWidgets.QDoubleSpinBox()
+        _config_nano_spin(self.jt_threshold_spin, settings.jt_light_threshold_a, single_step=1.0)
+        jt_form.addRow("Active threshold (nA):", self.jt_threshold_spin)
+
+        self.jt_led_check = QtWidgets.QCheckBox("Enable switch-board LEDs")
+        self.jt_led_check.setChecked(settings.jt_light_use_led)
+        jt_form.addRow(self.jt_led_check)
+
+        self.jt_limit_spin = QtWidgets.QDoubleSpinBox()
+        _config_nano_spin(self.jt_limit_spin, settings.jt_light_current_limit_a, allow_zero=True, single_step=100.0)
+        self.jt_limit_spin.setSpecialValueText("Disabled")
+        jt_form.addRow("Current limit (nA):", self.jt_limit_spin)
+
+        # Analysis
+        analysis_box = QtWidgets.QGroupBox("Analysis / plots")
+        analysis_form = QtWidgets.QFormLayout(analysis_box)
+        self.analysis_active_spin = QtWidgets.QDoubleSpinBox()
+        _config_nano_spin(self.analysis_active_spin, settings.analysis_active_threshold_a, single_step=1.0)
+        analysis_form.addRow("Active pixel threshold (nA):", self.analysis_active_spin)
+
+        # Tabs assembly to reduce required window height
+        tab_general = QtWidgets.QWidget()
+        tab_general_layout = QtWidgets.QVBoxLayout(tab_general)
+        tab_general_layout.addWidget(general_box)
+        tab_general_layout.addStretch(1)
+        tabs.addTab(tab_general, "General")
+
+        tab_screen = QtWidgets.QWidget()
+        tab_screen_layout = QtWidgets.QVBoxLayout(tab_screen)
+        tab_screen_layout.addWidget(short_box)
+        tab_screen_layout.addWidget(dead_box)
+        tab_screen_layout.addStretch(1)
+        tabs.addTab(tab_screen, "Screening")
+
+        tab_resistance = QtWidgets.QWidget()
+        tab_res_layout = QtWidgets.QVBoxLayout(tab_resistance)
+        tab_res_layout.addWidget(res_box)
+        tab_res_layout.addWidget(op_box)
+        tab_res_layout.addStretch(1)
+        tabs.addTab(tab_resistance, "DC / Resistance")
+
+        tab_wide = QtWidgets.QWidget()
+        tab_wide_layout = QtWidgets.QVBoxLayout(tab_wide)
+        tab_wide_layout.addWidget(wide_box)
+        tab_wide_layout.addStretch(1)
+        tabs.addTab(tab_wide, "Wide Dark JV")
+
+        tab_light = QtWidgets.QWidget()
+        tab_light_layout = QtWidgets.QVBoxLayout(tab_light)
+        tab_light_layout.addWidget(jt_box)
+        tab_light_layout.addStretch(1)
+        tabs.addTab(tab_light, "Light JT")
+
+        tab_analysis = QtWidgets.QWidget()
+        tab_analysis_layout = QtWidgets.QVBoxLayout(tab_analysis)
+        tab_analysis_layout.addWidget(analysis_box)
+        tab_analysis_layout.addStretch(1)
+        tabs.addTab(tab_analysis, "Analysis")
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _browse_pin_map(self):
+        fname, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Select pin map", "", "JSON/CSV (*.json *.csv *.txt);;All files (*)"
+        )
+        if fname:
+            self.pin_map_edit.setText(fname)
+
+    @staticmethod
+    def _spin_value_or_none(spin: QtWidgets.QDoubleSpinBox, scale: float = 1.0) -> Optional[float]:
+        try:
+            value = float(spin.value()) * scale
+        except Exception:
+            return None
+        return None if value <= 0 else value
+
+    def get_settings(self) -> CharacterizationSettings:
+        s = CharacterizationSettings()
+        s.pixel_spec = (self.pixel_spec_edit.text() or "1-100").strip()
+        s.samples_per_pixel = int(self.samples_spin.value())
+        s.nplc = float(self.nplc_spin.value())
+        s.auto_range = bool(self.auto_range_check.isChecked())
+        s.current_range = float(self.current_range_spin.value()) * 1e-9
+        s.use_local_readout = bool(self.local_readout_check.isChecked())
+        s.use_local_bias = bool(self.local_bias_check.isChecked())
+        s.output_subdir = (self.output_subdir_edit.text() or s.output_subdir).strip()
+
+        s.short_threshold_a = float(self.short_threshold_spin.value()) * 1e-9
+        pin_text = (self.pin_map_edit.text() or "").strip()
+        s.pin_map_path = pin_text or None
+
+        s.dead_short_voltage_v = float(self.dead_voltage_spin.value())
+        s.dead_short_threshold_a = float(self.dead_threshold_spin.value()) * 1e-9
+        s.stop_on_dead_short = bool(self.stop_dead_check.isChecked())
+
+        s.resistance_start_v = float(self.res_start_spin.value())
+        s.resistance_end_v = float(self.res_end_spin.value())
+        s.resistance_step_v = float(self.res_step_spin.value())
+        s.resistance_settle_s = float(self.res_settle_spin.value())
+
+        s.operating_field_v_per_cm = float(self.operating_field_spin.value())
+        s.device_thickness_cm = float(self.operating_thickness_spin.value())
+        s.operating_settle_s = float(self.operating_settle_spin.value())
+        s.operating_current_limit_a = self._spin_value_or_none(self.operating_limit_spin, 1e-9)
+
+        s.jv_dark_start_v = float(self.wide_start_spin.value())
+        s.jv_dark_end_v = float(self.wide_end_spin.value())
+        s.jv_dark_step_v = float(self.wide_step_spin.value())
+        s.jv_dark_zero_pause_s = float(self.wide_zero_pause_spin.value())
+        s.jv_dark_settle_s = float(self.wide_settle_spin.value())
+        s.jv_dark_current_limit_a = self._spin_value_or_none(self.wide_current_limit_spin, 1e-9)
+        s.jv_dark_zero_center = bool(self.wide_zero_center_check.isChecked())
+
+        s.jt_light_bias_v = float(self.jt_bias_spin.value())
+        s.jt_light_samples_per_pixel = int(self.jt_samples_spin.value())
+        s.jt_light_threshold_a = float(self.jt_threshold_spin.value()) * 1e-9
+        s.jt_light_use_led = bool(self.jt_led_check.isChecked())
+        s.jt_light_current_limit_a = self._spin_value_or_none(self.jt_limit_spin, 1e-9)
+
+        s.analysis_active_threshold_a = float(self.analysis_active_spin.value()) * 1e-9
+        return s
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -100,6 +471,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.action_open_stage_controller = QtGui.QAction("Open Stage Controller", self)
         self.menu_stage.addAction(self.action_open_stage_controller)
         self.action_open_stage_controller.triggered.connect(self._open_stage_controller_window)
+
+        self.menu_characterization = self.ui.menuBar.addMenu("Characterization")
+        self.action_run_characterization = QtGui.QAction("Run Characterization Suite", self)
+        self.action_characterization_settings = QtGui.QAction("Characterization Settings…", self)
+        self.action_abort_characterization = QtGui.QAction("Abort Characterization", self)
+        self.menu_characterization.addAction(self.action_run_characterization)
+        self.menu_characterization.addAction(self.action_characterization_settings)
+        self.menu_characterization.addAction(self.action_abort_characterization)
+        self.action_run_characterization.triggered.connect(self._start_characterization_suite)
+        self.action_characterization_settings.triggered.connect(self._open_characterization_settings)
+        self.action_abort_characterization.triggered.connect(self._abort_characterization_suite)
+        self.action_abort_characterization.setEnabled(False)
 
         # ---- paths/state ----
         self.output_folder: Path = APP_DIR
@@ -143,6 +526,28 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_limit: Optional[float] = None
         self._excluded_pixels: set[int] = set()
         self._scan_loop_count: int = 0
+        current_range_text = (self.ui.edit_current_range.text() or "").strip()
+        try:
+            current_range_value = float(current_range_text) if current_range_text else 1e-7
+        except Exception:
+            current_range_value = 1e-7
+        thickness_default = (
+            float(self.ui.spin_bias_thickness.value())
+            if hasattr(self.ui, "spin_bias_thickness")
+            else 1.0
+        )
+        self._characterization_settings = CharacterizationSettings(
+            pixel_spec=self.ui.edit_pixel_spec.text(),
+            samples_per_pixel=int(self.ui.spin_nsamp.value()),
+            nplc=float(self.ui.spin_nplc.value()),
+            auto_range=self.ui.check_auto_current_range.isChecked(),
+            current_range=float(current_range_value),
+            use_local_readout=self._using_local_readout(),
+            use_local_bias=self._using_local_bias(),
+            device_thickness_cm=thickness_default,
+        )
+        self._characterization_thread: Optional[QtCore.QThread] = None
+        self._characterization_worker: Optional[CharacterizationWorker] = None
 
         # ---- instruments (dummy by default) ----
         self.sm = DummyKeithley2400()
@@ -204,6 +609,11 @@ class MainWindow(QtWidgets.QMainWindow):
             row_idx, self.ui.label_current_limit, self.ui.edit_current_limit
         )
         self._update_integration_time_label()
+        self._characterization_progress = QtWidgets.QProgressBar()
+        self._characterization_progress.setMaximumWidth(260)
+        self._characterization_progress.setFormat("Characterization: %p%")
+        self._characterization_progress.setVisible(False)
+        self.statusBar().addPermanentWidget(self._characterization_progress)
         self._loop_control_widgets = [
             self.ui.label_loops,
             self.ui.spin_loops,
@@ -714,6 +1124,174 @@ class MainWindow(QtWidgets.QMainWindow):
     # ---------------------- convenience ----------------------
     def _update_statusbar(self, text: str):
         self.statusBar().showMessage(text, 4000)
+
+    # ---------------------- characterization suite ----------------------
+    def _open_characterization_settings(self):
+        dlg = CharacterizationSettingsDialog(
+            self, self._characterization_settings, self.ui.edit_pixel_spec.text()
+        )
+        if dlg.exec() != QtWidgets.QDialog.Accepted:
+            return
+        self._characterization_settings = dlg.get_settings()
+        # Keep source selections in sync with the main UI.
+        self._characterization_settings.use_local_readout = self._using_local_readout()
+        self._characterization_settings.use_local_bias = self._using_local_bias()
+        self._update_statusbar("Characterization settings updated.")
+
+    def _create_characterization_root(self, settings: CharacterizationSettings) -> Path:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        base_name = self._collect_experiment_name()
+        slug = re.sub(r"[^A-Za-z0-9_-]+", "_", base_name).strip("_") or "characterization"
+        subdir = settings.output_subdir or "characterization"
+        root = Path(self.output_folder) / subdir
+        root.mkdir(parents=True, exist_ok=True)
+        folder = root / f"{slug}_characterization_{timestamp}"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    def _start_characterization_suite(self):
+        if self._worker is not None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Characterization",
+                "Finish or abort the active scan before running the characterization suite.",
+            )
+            return
+        if self._characterization_thread is not None:
+            QtWidgets.QMessageBox.information(
+                self, "Characterization", "Characterization suite is already running."
+            )
+            return
+        run_settings = CharacterizationSettings(**vars(self._characterization_settings))
+        run_settings.use_local_readout = self._using_local_readout()
+        run_settings.use_local_bias = self._using_local_bias()
+        try:
+            pixels = self._parse_pixel_spec(run_settings.pixel_spec)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Characterization", f"Pixel selection invalid:\n{exc}")
+            return
+        if run_settings.use_local_readout and not self._switch_connected():
+            QtWidgets.QMessageBox.critical(
+                self, "Characterization", "Connect the switch board to use local readout."
+            )
+            return
+        if run_settings.use_local_bias and not self._switch_connected():
+            QtWidgets.QMessageBox.critical(
+                self, "Characterization", "Connect the switch board to use local bias."
+            )
+            return
+        if (
+            not run_settings.use_local_bias
+            and isinstance(self.bias_sm, DummyBias2400)
+        ):
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Characterization",
+                "Connect a bias sourcemeter or enable local bias before running the suite.",
+            )
+            return
+        try:
+            root = self._create_characterization_root(run_settings)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Characterization", f"Output folder error:\n{exc}")
+            return
+
+        worker = CharacterizationWorker(
+            settings=run_settings,
+            pixel_indices=pixels,
+            sm=self.sm,
+            bias_sm=self.bias_sm,
+            switch=self.switch,
+            output_root=root,
+        )
+        thread = QtCore.QThread()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.progressChanged.connect(self._on_characterization_progress)
+        worker.statusMessage.connect(self._update_statusbar)
+        worker.error.connect(self._on_characterization_error)
+        worker.finished.connect(self._on_characterization_finished)
+        self._characterization_worker = worker
+        self._characterization_thread = thread
+        self._set_characterization_ui_state(running=True)
+        if getattr(self, "_characterization_progress", None):
+            self._characterization_progress.setRange(0, 0)
+            self._characterization_progress.setValue(0)
+            self._characterization_progress.setFormat("Characterization: %p%")
+            self._characterization_progress.setVisible(True)
+        self._update_statusbar(f"Characterization suite started → {root}")
+        thread.start()
+
+    def _abort_characterization_suite(self):
+        if not self._characterization_worker:
+            return
+        try:
+            self._characterization_worker.stop()
+        except Exception:
+            pass
+        self.action_abort_characterization.setEnabled(False)
+        self._update_statusbar("Stopping characterization suite…")
+
+    def _on_characterization_progress(self, done: int, total: int, text: str):
+        bar = getattr(self, "_characterization_progress", None)
+        if bar:
+            total = max(1, int(total))
+            done = max(0, min(int(done), total))
+            bar.setRange(0, total)
+            bar.setValue(done)
+            bar.setFormat(f"Characterization: %p% ({done}/{total})")
+            bar.setVisible(True)
+        self.statusBar().showMessage(text, 4000)
+
+    def _on_characterization_error(self, message: str):
+        QtWidgets.QMessageBox.critical(self, "Characterization", message)
+
+    def _on_characterization_finished(self, success: bool, summary_obj):
+        thread = getattr(self, "_characterization_thread", None)
+        if thread:
+            try:
+                thread.quit()
+                thread.wait()
+            except Exception:
+                pass
+        self._characterization_thread = None
+        self._characterization_worker = None
+        bar = getattr(self, "_characterization_progress", None)
+        if bar:
+            bar.setValue(bar.maximum())
+            bar.setVisible(False)
+        self._set_characterization_ui_state(running=False)
+
+        root_path = None
+        try:
+            root_path = getattr(summary_obj, "suite_root", None)
+        except Exception:
+            root_path = None
+        if success:
+            msg = "Characterization suite finished."
+        else:
+            msg = "Characterization suite stopped or was aborted."
+        try:
+            dead = getattr(summary_obj, "dead_short_pixels", set()) or set()
+        except Exception:
+            dead = set()
+        if dead and self._characterization_settings.stop_on_dead_short:
+            msg = f"{msg}\nDead shorts detected: {sorted(dead)}"
+        if root_path:
+            msg = f"{msg}\nResults: {root_path}"
+        QtWidgets.QMessageBox.information(self, "Characterization", msg)
+        self._update_statusbar(msg)
+
+    def _set_characterization_ui_state(self, *, running: bool):
+        self.action_run_characterization.setEnabled(not running)
+        self.action_characterization_settings.setEnabled(not running)
+        self.action_abort_characterization.setEnabled(running)
+        if running:
+            self.ui.btn_run_abort.setEnabled(False)
+            self.ui.btn_pause_resume.setEnabled(False)
+        else:
+            self.ui.btn_run_abort.setEnabled(True)
+            self.ui.btn_pause_resume.setEnabled(bool(self._worker))
 
     def _switch_connected(self) -> bool:
         return not isinstance(self.switch, DummySwitchBoard)
@@ -1276,6 +1854,13 @@ class MainWindow(QtWidgets.QMainWindow):
             logging.error(f"Failed to write metadata to {metadata_path}: {exc}")
 
     def _start_scan(self):
+        if self._characterization_thread is not None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Characterization",
+                "Wait for the characterization suite to finish before starting a manual scan.",
+            )
+            return
         try:
             acquisition = self._build_acquisition_settings()
         except ValueError as exc:
