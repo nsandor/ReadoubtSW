@@ -26,6 +26,7 @@ class CharacterizationSettings:
     current_range: float = 1e-7
     use_local_readout: bool = False
     use_local_bias: bool = False
+    route_settle_ms: int = 4
 
     short_threshold_a: float = 1e-7
     pin_map_path: Optional[str] = None
@@ -57,9 +58,17 @@ class CharacterizationSettings:
     jt_light_threshold_a: float = 0.2e-9
     jt_light_use_led: bool = True
     jt_light_current_limit_a: Optional[float] = None
+    jt_light_settle_s: float = 0.0
 
     analysis_active_threshold_a: float = 0.2e-9
     output_subdir: str = "characterization"
+    histogram_bins: int = 30
+    histogram_sigma_clip: float = 0.0
+    heatmap_cmap_resistance: str = "viridis"
+    heatmap_cmap_dark: str = "inferno"
+    plot_units_current: str = "nA"
+    plot_vmin_current: Optional[float] = None
+    plot_vmax_current: Optional[float] = None
 
 
 @dataclass
@@ -117,23 +126,34 @@ def _generate_voltage_steps(start: float, end: float, step: float) -> List[float
     return values
 
 
-def _apply_zero_centering(voltages: List[float], enabled: bool) -> List[float]:
-    if not enabled:
-        return voltages
-    if not voltages:
-        return [0.0]
-    eps = 1e-9
-    result: List[float] = [0.0]
-    if abs(voltages[0]) > eps:
-        result.extend(voltages)
-    else:
-        deduped = [0.0]
-        for v in voltages[1:]:
-            if abs(v) < eps and abs(deduped[-1]) < eps:
-                continue
-            deduped.append(v)
-        result = deduped
-    return result
+    def _apply_zero_centering(voltages: List[float], enabled: bool) -> List[float]:
+        if not enabled:
+            return voltages
+        if not voltages:
+            return [0.0]
+        eps = 1e-9
+        result: List[float] = [0.0]
+        if abs(voltages[0]) > eps:
+            result.extend(voltages)
+        else:
+            deduped = [0.0]
+            for v in voltages[1:]:
+                if abs(v) < eps and abs(deduped[-1]) < eps:
+                    continue
+                deduped.append(v)
+            result = deduped
+        return result
+
+    def _apply_route_settle_time(self):
+        try:
+            ms = max(0, int(self._settings.route_settle_ms))
+        except Exception:
+            return
+        try:
+            if hasattr(self._switch, "set_settle_time"):
+                self._switch.set_settle_time(ms)
+        except Exception as exc:
+            LOG.warning("Failed to apply routing settle time: %s", exc)
 
 
 def _loop_to_csv_name(base: str, loop_idx: int, voltage: Optional[float]) -> str:
@@ -146,6 +166,8 @@ def _loop_to_csv_name(base: str, loop_idx: int, voltage: Optional[float]) -> str
 # ------------------------------ worker ------------------------------
 class CharacterizationWorker(QtCore.QObject):
     progressChanged = QtCore.Signal(int, int, str)
+    stepsPlanned = QtCore.Signal(object)
+    stepProgress = QtCore.Signal(str, int, int)
     statusMessage = QtCore.Signal(str)
     finished = QtCore.Signal(bool, object)
     error = QtCore.Signal(str)
@@ -173,13 +195,18 @@ class CharacterizationWorker(QtCore.QObject):
         self._total_steps = 1
         self._done_steps = 0
         self._active_scan_worker: Optional[ScanWorker] = None
+        self._step_plan: list[tuple[str, str, int]] = []
+        self._step_state: dict[str, dict] = {}
 
     @QtCore.Slot()
     def run(self):
         try:
             self._root.mkdir(parents=True, exist_ok=True)
+            self._step_plan = self._build_step_plan()
+            self.stepsPlanned.emit(self._step_plan)
             total = self._estimate_total_loops()
             self._total_steps = total
+            self._apply_route_settle_time()
             self._emit_progress("Starting characterization suite", reset=True)
             self._run_suite()
             self._write_metadata()
@@ -197,53 +224,95 @@ class CharacterizationWorker(QtCore.QObject):
             except Exception:
                 pass
 
-    # -------------------------- suite orchestration --------------------------
-    def _run_suite(self):
-        self._run_shorted_pixel_test()
-        if self._stop:
-            return
-        dead_found = self._run_dead_short_test()
-        if self._stop or (dead_found and self._settings.stop_on_dead_short):
-            return
-        self._run_resistance_test()
-        if self._stop:
-            return
-        self._run_operating_dark_current()
-        if self._stop:
-            return
-        self._run_wide_dark_jv()
-        if self._stop:
-            return
-        self._run_light_jt()
-        if self._stop:
-            return
-        self._generate_plots()
-
-    def _estimate_total_loops(self) -> int:
-        steps = 0
-        try:
-            steps += 1  # shorted
-            steps += 1  # dead short
-            steps += len(_generate_voltage_steps(
+    def _build_step_plan(self) -> list[tuple[str, str, int]]:
+        plan: list[tuple[str, str, int]] = []
+        res_steps = len(
+            _generate_voltage_steps(
                 self._settings.resistance_start_v,
                 self._settings.resistance_end_v,
                 self._settings.resistance_step_v,
-            ))
-            steps += 1  # operating dark
-            steps += len(
-                _apply_zero_centering(
-                    _generate_voltage_steps(
-                        self._settings.jv_dark_start_v,
-                        self._settings.jv_dark_end_v,
-                        self._settings.jv_dark_step_v,
-                    ),
-                    self._settings.jv_dark_zero_center,
-                )
             )
-            steps += 1  # light JT
+        )
+        wide_steps = len(
+            _apply_zero_centering(
+                _generate_voltage_steps(
+                    self._settings.jv_dark_start_v,
+                    self._settings.jv_dark_end_v,
+                    self._settings.jv_dark_step_v,
+                ),
+                self._settings.jv_dark_zero_center,
+            )
+        )
+        plan.append(("short", "Shorted pixel test", 1))
+        plan.append(("dead", "Dead short test", 1))
+        plan.append(("resistance", "Resistance JV", max(1, res_steps)))
+        plan.append(("dark_operating", "Dark @ operating bias", 1))
+        plan.append(("wide_dark", "Wide dark JV", max(1, wide_steps)))
+        plan.append(("light_jt", "Light JT", 1))
+        plan.append(("plots", "Plot generation", 1))
+        return plan
+
+    def _begin_step(self, key: str):
+        entry = next((p for p in self._step_plan if p[0] == key), None)
+        total = entry[2] if entry else 1
+        self._step_state[key] = {"done": 0, "total": max(1, int(total))}
+        self.stepProgress.emit(key, 0, max(1, int(total)))
+
+    def _increment_step(self, key: str, inc: int = 1):
+        state = self._step_state.get(key)
+        if not state:
+            return
+        state["done"] = min(state["total"], state.get("done", 0) + max(1, int(inc)))
+        self.stepProgress.emit(key, int(state["done"]), int(state["total"]))
+
+    def _complete_step(self, key: str):
+        state = self._step_state.get(key)
+        if not state:
+            return
+        state["done"] = state["total"]
+        self.stepProgress.emit(key, int(state["done"]), int(state["total"]))
+
+    # -------------------------- suite orchestration --------------------------
+    def _run_suite(self):
+        self._begin_step("short")
+        self._run_shorted_pixel_test()
+        self._complete_step("short")
+        if self._stop:
+            return
+        self._begin_step("dead")
+        dead_found = self._run_dead_short_test()
+        self._complete_step("dead")
+        if self._stop or (dead_found and self._settings.stop_on_dead_short):
+            return
+        self._begin_step("resistance")
+        self._run_resistance_test()
+        self._complete_step("resistance")
+        if self._stop:
+            return
+        self._begin_step("dark_operating")
+        self._run_operating_dark_current()
+        self._complete_step("dark_operating")
+        if self._stop:
+            return
+        self._begin_step("wide_dark")
+        self._run_wide_dark_jv()
+        self._complete_step("wide_dark")
+        if self._stop:
+            return
+        self._begin_step("light_jt")
+        self._run_light_jt()
+        self._complete_step("light_jt")
+        if self._stop:
+            return
+        self._begin_step("plots")
+        self._generate_plots()
+        self._complete_step("plots")
+
+    def _estimate_total_loops(self) -> int:
+        try:
+            return max(1, sum(total for _, _, total in self._step_plan))
         except Exception:
-            steps = 10
-        return max(steps, 1)
+            return 10
 
     # -------------------------- individual tests --------------------------
     def _run_shorted_pixel_test(self):
@@ -268,7 +337,7 @@ class CharacterizationWorker(QtCore.QObject):
             use_local_readout=settings.use_local_readout,
             use_local_bias=settings.use_local_bias,
         )
-        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir)
+        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir, step_key="short")
         self._captures[name] = capture
         matrix = capture.loops[0].data if capture.loops else np.full((10, 10), np.nan)
         shorted: Set[int] = set()
@@ -313,7 +382,7 @@ class CharacterizationWorker(QtCore.QObject):
             use_local_readout=settings.use_local_readout,
             use_local_bias=settings.use_local_bias,
         )
-        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir)
+        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir, step_key="dead")
         self._captures[name] = capture
         matrix = capture.loops[0].data if capture.loops else np.full((10, 10), np.nan)
         threshold = abs(settings.dead_short_threshold_a)
@@ -371,7 +440,7 @@ class CharacterizationWorker(QtCore.QObject):
             use_local_readout=settings.use_local_readout,
             use_local_bias=settings.use_local_bias,
         )
-        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir)
+        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir, step_key="resistance")
         self._captures[name] = capture
         self._summary.test_dirs[name] = output_dir
         self._emit_progress("Resistance JV sweep complete")
@@ -399,7 +468,7 @@ class CharacterizationWorker(QtCore.QObject):
             use_local_readout=settings.use_local_readout,
             use_local_bias=settings.use_local_bias,
         )
-        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir)
+        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir, step_key="dark_operating")
         self._captures[name] = capture
         self._summary.test_dirs[name] = output_dir
         self._emit_progress("Dark current at operating bias captured")
@@ -434,7 +503,7 @@ class CharacterizationWorker(QtCore.QObject):
             use_local_readout=settings.use_local_readout,
             use_local_bias=settings.use_local_bias,
         )
-        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir)
+        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir, step_key="wide_dark")
         self._captures[name] = capture
         self._summary.test_dirs[name] = output_dir
         self._summary.wide_jv_over_limit = set(capture.excluded_pixels)
@@ -457,7 +526,7 @@ class CharacterizationWorker(QtCore.QObject):
             current_limit=settings.jt_light_current_limit_a,
             measurement_mode="time",
             voltage_steps=None,
-            voltage_settle_s=0.0,
+            voltage_settle_s=max(0.0, settings.jt_light_settle_s),
             voltage_zero_center=False,
             voltage_zero_pause_s=0.0,
             constant_bias_voltage=settings.jt_light_bias_v,
@@ -470,7 +539,7 @@ class CharacterizationWorker(QtCore.QObject):
                 self._switch.set_led(True)
             except Exception as exc:
                 LOG.warning("Failed to enable LEDs: %s", exc)
-        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir)
+        capture = self._run_scan(name=name, acquisition=acquisition, output_dir=output_dir, step_key="light_jt")
         if led_enabled:
             try:
                 self._switch.set_led(False)
@@ -499,6 +568,7 @@ class CharacterizationWorker(QtCore.QObject):
         name: str,
         acquisition: AcquisitionSettings,
         output_dir: Path,
+        step_key: Optional[str] = None,
     ) -> ScanResult:
         if self._stop:
             return ScanResult(name=name, loops=[], excluded_pixels=set(), output_dir=output_dir)
@@ -550,6 +620,8 @@ class CharacterizationWorker(QtCore.QObject):
             metadata_map[loop_idx] = md or {}
             self._done_steps = min(self._done_steps + 1, self._total_steps)
             self._emit_progress(f"{name} loop {loop_idx} complete")
+            if step_key:
+                self._increment_step(step_key)
 
         def handle_excluded(pixel_idx: int, measured: float, loop_idx: int):
             try:
@@ -591,6 +663,11 @@ class CharacterizationWorker(QtCore.QObject):
         active = set(self._summary.active_pixels)
         shorted = set(self._summary.shorted_pixels)
         active_minus_shorted = [p for p in active if p not in shorted]
+        unit = (self._settings.plot_units_current or "A").strip()
+        unit_scale = {"A": 1.0, "mA": 1e3, "µA": 1e6, "uA": 1e6, "nA": 1e9, "pA": 1e12}
+        scale = unit_scale.get(unit, 1.0)
+        vmin_curr = self._settings.plot_vmin_current
+        vmax_curr = self._settings.plot_vmax_current
 
         # Resistance heatmap + histogram
         resistance_map = np.full((10, 10), np.nan)
@@ -604,13 +681,13 @@ class CharacterizationWorker(QtCore.QObject):
                 try:
                     coef = np.polyfit(voltages, currents, 1)
                     slope = coef[0]
-                    if abs(slope) > 0:
+                    if slope > 0:
                         resistance_map[(pixel - 1) // 10, (pixel - 1) % 10] = 1.0 / slope
                 except Exception:
                     continue
             self._summary.resistance_map = resistance_map
             fig, ax = plt.subplots()
-            im = ax.imshow(resistance_map, cmap="viridis")
+            im = ax.imshow(resistance_map, cmap=self._settings.heatmap_cmap_resistance)
             plt.colorbar(im, ax=ax, label="Resistance (Ohms)")
             ax.set_title("Resistance map (active pixels)")
             res_heatmap_path = plots_dir / "resistance_heatmap.png"
@@ -619,9 +696,10 @@ class CharacterizationWorker(QtCore.QObject):
             self._summary.plot_paths["resistance_heatmap"] = res_heatmap_path
 
             valid_res = resistance_map[~np.isnan(resistance_map)]
+            valid_res = self._sigma_clip(valid_res, self._settings.histogram_sigma_clip)
             if valid_res.size:
                 fig, ax = plt.subplots()
-                ax.hist(valid_res, bins=30)
+                ax.hist(valid_res, bins=max(1, int(self._settings.histogram_bins)))
                 ax.set_xlabel("Resistance (Ohms)")
                 ax.set_ylabel("Pixel count")
                 ax.set_title("Resistance histogram (active pixels)")
@@ -631,7 +709,7 @@ class CharacterizationWorker(QtCore.QObject):
                 self._summary.plot_paths["resistance_histogram"] = res_hist_path
 
         # Dark current at operating bias
-        dark_capture = self._captures.get("dark_current_operating")
+            dark_capture = self._captures.get("dark_current_operating")
         if dark_capture and dark_capture.loops:
             dark_map = np.array(dark_capture.loops[0].data, copy=True)
             if active_minus_shorted:
@@ -641,20 +719,27 @@ class CharacterizationWorker(QtCore.QObject):
                     mask[r, c] = False
                 dark_map = np.where(mask, np.nan, dark_map)
             self._summary.dark_current_map = dark_map
+            scaled_map = dark_map * scale
             fig, ax = plt.subplots()
-            im = ax.imshow(dark_map, cmap="inferno")
-            plt.colorbar(im, ax=ax, label="Current (A)")
+            im = ax.imshow(
+                scaled_map,
+                cmap=self._settings.heatmap_cmap_dark,
+                vmin=vmin_curr if vmin_curr is not None else None,
+                vmax=vmax_curr if vmax_curr is not None else None,
+            )
+            plt.colorbar(im, ax=ax, label=f"Current ({unit})")
             ax.set_title("Dark current @ operating bias")
             dark_heatmap_path = plots_dir / "dark_current_heatmap.png"
             fig.savefig(dark_heatmap_path, dpi=200, bbox_inches="tight")
             plt.close(fig)
             self._summary.plot_paths["dark_heatmap"] = dark_heatmap_path
 
-            valid_dark = dark_map[~np.isnan(dark_map)]
+            valid_dark = scaled_map[~np.isnan(scaled_map)]
+            valid_dark = self._sigma_clip(valid_dark, self._settings.histogram_sigma_clip)
             if valid_dark.size:
                 fig, ax = plt.subplots()
-                ax.hist(valid_dark, bins=30)
-                ax.set_xlabel("Current (A)")
+                ax.hist(valid_dark, bins=max(1, int(self._settings.histogram_bins)))
+                ax.set_xlabel(f"Current ({unit})")
                 ax.set_ylabel("Pixel count")
                 ax.set_title("Dark current @ operating bias")
                 dark_hist_path = plots_dir / "dark_current_histogram.png"
@@ -700,6 +785,8 @@ class CharacterizationWorker(QtCore.QObject):
                 self._summary.plot_paths["wide_jv_r2_boxplot"] = r2_plot_path
             self._summary.plot_paths["wide_jv_curves"] = wide_plot_path
             self._summary.r2_values = r2_map
+        self._done_steps = min(self._total_steps, self._done_steps + 1)
+        self._emit_progress("Plot generation complete")
 
     def _extract_curve(self, capture: ScanResult, pixel: int) -> List[Tuple[float, float]]:
         curve: List[Tuple[float, float]] = []
@@ -716,6 +803,17 @@ class CharacterizationWorker(QtCore.QObject):
             curve.append((float(loop.voltage), float(val)))
         curve.sort(key=lambda t: t[0])
         return curve
+
+    @staticmethod
+    def _sigma_clip(values: np.ndarray, sigma: float) -> np.ndarray:
+        if sigma is None or sigma <= 0 or values.size == 0:
+            return values
+        mu = float(np.nanmean(values))
+        std = float(np.nanstd(values))
+        if std <= 0:
+            return values
+        mask = np.abs(values - mu) <= sigma * std
+        return values[mask]
 
     # -------------------------- saving helpers --------------------------
     def _save_loop(self, output_dir: Path, name: str, loop: LoopResult):
@@ -749,6 +847,7 @@ class CharacterizationWorker(QtCore.QObject):
             "dead_short_pixels": sorted(self._summary.dead_short_pixels),
             "wide_jv_over_limit": sorted(self._summary.wide_jv_over_limit),
             "active_pixels": sorted(self._summary.active_pixels),
+            "active_pixel_count": len(self._summary.active_pixels),
             "plots": {k: str(v) for k, v in self._summary.plot_paths.items()},
             "test_dirs": {k: str(v) for k, v in self._summary.test_dirs.items()},
         }

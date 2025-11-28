@@ -122,6 +122,12 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
             except Exception:
                 spin.setValue(0.0)
 
+        def _set_nano_value(spin: QtWidgets.QDoubleSpinBox, value_a: Optional[float]):
+            try:
+                spin.setValue(float(value_a) * 1e9 if value_a is not None else 0.0)
+            except Exception:
+                spin.setValue(0.0)
+
         tabs = QtWidgets.QTabWidget(self)
         layout.addWidget(tabs)
 
@@ -164,6 +170,11 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
 
         self.output_subdir_edit = QtWidgets.QLineEdit(settings.output_subdir)
         general_form.addRow("Output subfolder:", self.output_subdir_edit)
+
+        self.route_settle_spin = QtWidgets.QSpinBox()
+        self.route_settle_spin.setRange(0, 5000)
+        self.route_settle_spin.setValue(int(settings.route_settle_ms))
+        general_form.addRow("Routing settle (ms):", self.route_settle_spin)
 
         # Shorted pixel test
         short_box = QtWidgets.QGroupBox("Shorted pixel test")
@@ -312,10 +323,17 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
         jt_form = QtWidgets.QFormLayout(jt_box)
         self.jt_bias_spin = QtWidgets.QDoubleSpinBox()
         self.jt_bias_spin.setDecimals(3)
-        self.jt_bias_spin.setRange(0.0, 300.0)
+        self.jt_bias_spin.setRange(-300.0, 300.0)
         self.jt_bias_spin.setSingleStep(1.0)
         self.jt_bias_spin.setValue(float(settings.jt_light_bias_v))
         jt_form.addRow("Bias (V):", self.jt_bias_spin)
+
+        self.jt_settle_spin = QtWidgets.QDoubleSpinBox()
+        self.jt_settle_spin.setDecimals(2)
+        self.jt_settle_spin.setRange(0.0, 600.0)
+        self.jt_settle_spin.setSingleStep(0.1)
+        self.jt_settle_spin.setValue(float(settings.jt_light_settle_s))
+        jt_form.addRow("Settle time (s):", self.jt_settle_spin)
 
         self.jt_samples_spin = QtWidgets.QSpinBox()
         self.jt_samples_spin.setRange(1, 100)
@@ -341,6 +359,50 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
         self.analysis_active_spin = QtWidgets.QDoubleSpinBox()
         _config_nano_spin(self.analysis_active_spin, settings.analysis_active_threshold_a, single_step=1.0)
         analysis_form.addRow("Active pixel threshold (nA):", self.analysis_active_spin)
+        self.hist_bins_spin = QtWidgets.QSpinBox()
+        self.hist_bins_spin.setRange(5, 500)
+        self.hist_bins_spin.setValue(int(settings.histogram_bins))
+        analysis_form.addRow("Histogram bins:", self.hist_bins_spin)
+        self.hist_sigma_spin = QtWidgets.QDoubleSpinBox()
+        self.hist_sigma_spin.setDecimals(2)
+        self.hist_sigma_spin.setRange(0.0, 10.0)
+        self.hist_sigma_spin.setSingleStep(0.1)
+        self.hist_sigma_spin.setValue(float(settings.histogram_sigma_clip))
+        analysis_form.addRow("Outlier clip (σ, 0=off):", self.hist_sigma_spin)
+        cmap_opts = ["viridis", "inferno", "plasma", "magma", "cividis", "turbo"]
+        self.res_cmap_combo = QtWidgets.QComboBox()
+        self.res_cmap_combo.addItems(cmap_opts)
+        try:
+            idx = cmap_opts.index(settings.heatmap_cmap_resistance)
+            self.res_cmap_combo.setCurrentIndex(idx)
+        except ValueError:
+            pass
+        analysis_form.addRow("Resistance heatmap cmap:", self.res_cmap_combo)
+        self.dark_cmap_combo = QtWidgets.QComboBox()
+        self.dark_cmap_combo.addItems(cmap_opts)
+        try:
+            idx = cmap_opts.index(settings.heatmap_cmap_dark)
+            self.dark_cmap_combo.setCurrentIndex(idx)
+        except ValueError:
+            pass
+        analysis_form.addRow("Dark heatmap cmap:", self.dark_cmap_combo)
+        self.units_combo = QtWidgets.QComboBox()
+        self.units_combo.addItems(["A", "mA", "µA", "nA", "pA"])
+        try:
+            idx = self.units_combo.findText(settings.plot_units_current)
+            if idx >= 0:
+                self.units_combo.setCurrentIndex(idx)
+        except Exception:
+            pass
+        analysis_form.addRow("Current plot units:", self.units_combo)
+        self.vmin_edit = QtWidgets.QLineEdit(
+            "" if settings.plot_vmin_current is None else str(settings.plot_vmin_current)
+        )
+        self.vmax_edit = QtWidgets.QLineEdit(
+            "" if settings.plot_vmax_current is None else str(settings.plot_vmax_current)
+        )
+        analysis_form.addRow("Heatmap min (unit units):", self.vmin_edit)
+        analysis_form.addRow("Heatmap max (unit units):", self.vmax_edit)
 
         # Tabs assembly to reduce required window height
         tab_general = QtWidgets.QWidget()
@@ -381,6 +443,15 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
         tab_analysis_layout.addStretch(1)
         tabs.addTab(tab_analysis, "Analysis")
 
+        # Save/load buttons
+        button_row = QtWidgets.QHBoxLayout()
+        self.btn_load_settings = QtWidgets.QPushButton("Load settings…")
+        self.btn_save_settings = QtWidgets.QPushButton("Save settings…")
+        button_row.addWidget(self.btn_load_settings)
+        button_row.addWidget(self.btn_save_settings)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
             | QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -389,6 +460,9 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+        self.btn_load_settings.clicked.connect(self._handle_load_settings)
+        self.btn_save_settings.clicked.connect(self._handle_save_settings)
+
     def _browse_pin_map(self):
         fname, _ = QtWidgets.QFileDialog.getOpenFileName(
             self, "Select pin map", "", "JSON/CSV (*.json *.csv *.txt);;All files (*)"
@@ -396,6 +470,91 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
         if fname:
             self.pin_map_edit.setText(fname)
 
+    def _handle_load_settings(self):
+        fname, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Load characterization settings", "", "JSON files (*.json);;All files (*)"
+        )
+        if not fname:
+            return
+        try:
+            data = json.loads(Path(fname).read_text(encoding="utf-8"))
+            base = CharacterizationSettings()
+            merged = {**base.__dict__, **data} if isinstance(data, dict) else base.__dict__
+            loaded = CharacterizationSettings(**merged)
+            self._apply_settings_to_fields(loaded)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Load settings", f"Failed to load settings:\n{exc}")
+
+    def _handle_save_settings(self):
+        fname, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save characterization settings", "characterization_settings.json", "JSON files (*.json);;All files (*)"
+        )
+        if not fname:
+            return
+        try:
+            settings = self.get_settings()
+            Path(fname).write_text(json.dumps(asdict(settings), indent=2), encoding="utf-8")
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Save settings", f"Failed to save settings:\n{exc}")
+
+    def _apply_settings_to_fields(self, s: CharacterizationSettings):
+        self.pixel_spec_edit.setText(s.pixel_spec)
+        self.samples_spin.setValue(int(s.samples_per_pixel))
+        self.nplc_spin.setValue(float(s.nplc))
+        self.auto_range_check.setChecked(bool(s.auto_range))
+        self.current_range_spin.setValue(max(0.0, float(s.current_range) * 1e9))
+        self.current_range_spin.setEnabled(not s.auto_range)
+        self.local_readout_check.setChecked(bool(s.use_local_readout))
+        self.local_bias_check.setChecked(bool(s.use_local_bias))
+        self.output_subdir_edit.setText(s.output_subdir)
+        self.route_settle_spin.setValue(int(s.route_settle_ms))
+
+        self.short_threshold_spin.setValue(max(0.0, float(s.short_threshold_a) * 1e9))
+        self.pin_map_edit.setText(s.pin_map_path or "")
+
+        self.dead_voltage_spin.setValue(float(s.dead_short_voltage_v))
+        self.dead_threshold_spin.setValue(max(0.0, float(s.dead_short_threshold_a) * 1e9))
+        self.stop_dead_check.setChecked(bool(s.stop_on_dead_short))
+
+        self.res_start_spin.setValue(float(s.resistance_start_v))
+        self.res_end_spin.setValue(float(s.resistance_end_v))
+        self.res_step_spin.setValue(float(s.resistance_step_v))
+        self.res_settle_spin.setValue(float(s.resistance_settle_s))
+
+        self.operating_field_spin.setValue(float(s.operating_field_v_per_cm))
+        self.operating_thickness_spin.setValue(float(s.device_thickness_cm))
+        self.operating_settle_spin.setValue(float(s.operating_settle_s))
+        self.operating_limit_spin.setValue(max(0.0, float(s.operating_current_limit_a or 0.0) * 1e9))
+
+        self.wide_start_spin.setValue(float(s.jv_dark_start_v))
+        self.wide_end_spin.setValue(float(s.jv_dark_end_v))
+        self.wide_step_spin.setValue(float(s.jv_dark_step_v))
+        self.wide_zero_pause_spin.setValue(float(s.jv_dark_zero_pause_s))
+        self.wide_settle_spin.setValue(float(s.jv_dark_settle_s))
+        self.wide_current_limit_spin.setValue(max(0.0, float(s.jv_dark_current_limit_a or 0.0) * 1e9))
+        self.wide_zero_center_check.setChecked(bool(s.jv_dark_zero_center))
+
+        self.jt_bias_spin.setValue(float(s.jt_light_bias_v))
+        self.jt_samples_spin.setValue(int(s.jt_light_samples_per_pixel))
+        self.jt_threshold_spin.setValue(max(0.0, float(s.jt_light_threshold_a) * 1e9))
+        self.jt_led_check.setChecked(bool(s.jt_light_use_led))
+        self.jt_limit_spin.setValue(max(0.0, float(s.jt_light_current_limit_a or 0.0) * 1e9))
+        self.jt_settle_spin.setValue(float(s.jt_light_settle_s))
+
+        self.analysis_active_spin.setValue(max(0.0, float(s.analysis_active_threshold_a) * 1e9))
+        self.hist_bins_spin.setValue(int(s.histogram_bins))
+        self.hist_sigma_spin.setValue(float(s.histogram_sigma_clip))
+        cmap_opts = [self.res_cmap_combo.itemText(i) for i in range(self.res_cmap_combo.count())]
+        if s.heatmap_cmap_resistance in cmap_opts:
+            self.res_cmap_combo.setCurrentIndex(cmap_opts.index(s.heatmap_cmap_resistance))
+        cmap_opts_dark = [self.dark_cmap_combo.itemText(i) for i in range(self.dark_cmap_combo.count())]
+        if s.heatmap_cmap_dark in cmap_opts_dark:
+            self.dark_cmap_combo.setCurrentIndex(cmap_opts_dark.index(s.heatmap_cmap_dark))
+        idx_units = self.units_combo.findText(s.plot_units_current)
+        if idx_units >= 0:
+            self.units_combo.setCurrentIndex(idx_units)
+        self.vmin_edit.setText("" if s.plot_vmin_current is None else str(s.plot_vmin_current))
+        self.vmax_edit.setText("" if s.plot_vmax_current is None else str(s.plot_vmax_current))
     @staticmethod
     def _spin_value_or_none(spin: QtWidgets.QDoubleSpinBox, scale: float = 1.0) -> Optional[float]:
         try:
@@ -414,6 +573,7 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
         s.use_local_readout = bool(self.local_readout_check.isChecked())
         s.use_local_bias = bool(self.local_bias_check.isChecked())
         s.output_subdir = (self.output_subdir_edit.text() or s.output_subdir).strip()
+        s.route_settle_ms = int(self.route_settle_spin.value())
 
         s.short_threshold_a = float(self.short_threshold_spin.value()) * 1e-9
         pin_text = (self.pin_map_edit.text() or "").strip()
@@ -446,9 +606,89 @@ class CharacterizationSettingsDialog(QtWidgets.QDialog):
         s.jt_light_threshold_a = float(self.jt_threshold_spin.value()) * 1e-9
         s.jt_light_use_led = bool(self.jt_led_check.isChecked())
         s.jt_light_current_limit_a = self._spin_value_or_none(self.jt_limit_spin, 1e-9)
+        s.jt_light_settle_s = float(self.jt_settle_spin.value())
 
         s.analysis_active_threshold_a = float(self.analysis_active_spin.value()) * 1e-9
+        s.histogram_bins = int(self.hist_bins_spin.value())
+        s.histogram_sigma_clip = float(self.hist_sigma_spin.value())
+        s.heatmap_cmap_resistance = self.res_cmap_combo.currentText()
+        s.heatmap_cmap_dark = self.dark_cmap_combo.currentText()
+        s.plot_units_current = self.units_combo.currentText()
+        try:
+            s.plot_vmin_current = float(self.vmin_edit.text()) if self.vmin_edit.text().strip() else None
+        except Exception:
+            s.plot_vmin_current = None
+        try:
+            s.plot_vmax_current = float(self.vmax_edit.text()) if self.vmax_edit.text().strip() else None
+        except Exception:
+            s.plot_vmax_current = None
         return s
+
+
+class CharacterizationProgressDialog(QtWidgets.QDialog):
+    """Lightweight progress popup with step breakdown."""
+
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
+        super().__init__(parent)
+        self.setWindowTitle("Characterization Progress")
+        self.setModal(False)
+        self.setMinimumWidth(420)
+        layout = QtWidgets.QVBoxLayout(self)
+        self.overall_bar = QtWidgets.QProgressBar()
+        self.overall_bar.setFormat("Overall: %p% (%v/%m)")
+        layout.addWidget(self.overall_bar)
+        self.steps_container = QtWidgets.QWidget()
+        self.steps_layout = QtWidgets.QVBoxLayout(self.steps_container)
+        self.steps_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.steps_container)
+        self._step_bars: dict[str, QtWidgets.QProgressBar] = {}
+
+    def set_steps(self, plan: object):
+        # plan: list of (key, label, total)
+        # Clear existing
+        while self.steps_layout.count():
+            item = self.steps_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        self._step_bars.clear()
+        if not isinstance(plan, (list, tuple)):
+            return
+        for entry in plan:
+            try:
+                key, label, total = entry
+            except Exception:
+                continue
+            row = QtWidgets.QHBoxLayout()
+            lbl = QtWidgets.QLabel(str(label))
+            bar = QtWidgets.QProgressBar()
+            bar.setRange(0, max(1, int(total)))
+            bar.setValue(0)
+            bar.setFormat("%p% (%v/%m)")
+            row.addWidget(lbl)
+            row.addWidget(bar, 1)
+            wrapper = QtWidgets.QWidget()
+            wrapper.setLayout(row)
+            self.steps_layout.addWidget(wrapper)
+            self._step_bars[str(key)] = bar
+        self.steps_layout.addStretch(1)
+
+    def update_step(self, key: str, done: int, total: int):
+        bar = self._step_bars.get(str(key))
+        if not bar:
+            return
+        total = max(1, int(total))
+        done = max(0, min(int(done), total))
+        bar.setRange(0, total)
+        bar.setValue(done)
+
+    def update_overall(self, done: int, total: int, text: str = ""):
+        total = max(1, int(total))
+        done = max(0, min(int(done), total))
+        self.overall_bar.setRange(0, total)
+        self.overall_bar.setValue(done)
+        if text:
+            self.overall_bar.setFormat(f"{text} – %p% (%v/%m)")
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -545,9 +785,12 @@ class MainWindow(QtWidgets.QMainWindow):
             use_local_readout=self._using_local_readout(),
             use_local_bias=self._using_local_bias(),
             device_thickness_cm=thickness_default,
+            route_settle_ms=self._switch_settle_ms,
+            jt_light_settle_s=0.0,
         )
         self._characterization_thread: Optional[QtCore.QThread] = None
         self._characterization_worker: Optional[CharacterizationWorker] = None
+        self._characterization_progress_dialog: Optional[CharacterizationProgressDialog] = None
 
         # ---- instruments (dummy by default) ----
         self.sm = DummyKeithley2400()
@@ -1208,6 +1451,8 @@ class MainWindow(QtWidgets.QMainWindow):
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.progressChanged.connect(self._on_characterization_progress)
+        worker.stepsPlanned.connect(self._on_characterization_steps_planned)
+        worker.stepProgress.connect(self._on_characterization_step_progress)
         worker.statusMessage.connect(self._update_statusbar)
         worker.error.connect(self._on_characterization_error)
         worker.finished.connect(self._on_characterization_finished)
@@ -1219,6 +1464,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self._characterization_progress.setValue(0)
             self._characterization_progress.setFormat("Characterization: %p%")
             self._characterization_progress.setVisible(True)
+        try:
+            if self._characterization_progress_dialog:
+                self._characterization_progress_dialog.close()
+            self._characterization_progress_dialog = CharacterizationProgressDialog(self)
+            self._characterization_progress_dialog.show()
+        except Exception:
+            self._characterization_progress_dialog = None
         self._update_statusbar(f"Characterization suite started → {root}")
         thread.start()
 
@@ -1231,6 +1483,12 @@ class MainWindow(QtWidgets.QMainWindow):
             pass
         self.action_abort_characterization.setEnabled(False)
         self._update_statusbar("Stopping characterization suite…")
+        if self._characterization_progress_dialog:
+            try:
+                self._characterization_progress_dialog.close()
+            except Exception:
+                pass
+            self._characterization_progress_dialog = None
 
     def _on_characterization_progress(self, done: int, total: int, text: str):
         bar = getattr(self, "_characterization_progress", None)
@@ -1241,10 +1499,29 @@ class MainWindow(QtWidgets.QMainWindow):
             bar.setValue(done)
             bar.setFormat(f"Characterization: %p% ({done}/{total})")
             bar.setVisible(True)
+        dlg = getattr(self, "_characterization_progress_dialog", None)
+        if dlg:
+            dlg.update_overall(done, total, "Overall")
         self.statusBar().showMessage(text, 4000)
+
+    def _on_characterization_steps_planned(self, plan: object):
+        dlg = getattr(self, "_characterization_progress_dialog", None)
+        if dlg:
+            dlg.set_steps(plan)
+
+    def _on_characterization_step_progress(self, key: str, done: int, total: int):
+        dlg = getattr(self, "_characterization_progress_dialog", None)
+        if dlg:
+            dlg.update_step(key, done, total)
 
     def _on_characterization_error(self, message: str):
         QtWidgets.QMessageBox.critical(self, "Characterization", message)
+        if self._characterization_progress_dialog:
+            try:
+                self._characterization_progress_dialog.close()
+            except Exception:
+                pass
+            self._characterization_progress_dialog = None
 
     def _on_characterization_finished(self, success: bool, summary_obj):
         thread = getattr(self, "_characterization_thread", None)
@@ -1281,6 +1558,11 @@ class MainWindow(QtWidgets.QMainWindow):
             msg = f"{msg}\nResults: {root_path}"
         QtWidgets.QMessageBox.information(self, "Characterization", msg)
         self._update_statusbar(msg)
+        try:
+            if self._characterization_progress_dialog:
+                self._characterization_progress_dialog.close()
+        finally:
+            self._characterization_progress_dialog = None
 
     def _set_characterization_ui_state(self, *, running: bool):
         self.action_run_characterization.setEnabled(not running)
